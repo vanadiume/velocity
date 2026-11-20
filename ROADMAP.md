@@ -13,18 +13,22 @@ reports all twenty-two codes, names the block and the instruction a rule is
 about, and is tested by a corpus it accepts and a corpus it refuses.
 
 Left in this release: the printer, so a module cannot be written back and there
-is no round trip yet; the builder, so a front end cannot create one; and
-everything below the IR. A module can be read, checked and inspected, not
-emitted. No target yet.
+is no round trip yet; and everything below the IR. A module can be built, read
+and checked, not emitted. No target yet.
 
 ## 0.1.0: a function that verifies
 
-The builder a front end writes against. The verifier that refuses a function
-which is not well formed has landed, so what is left is the path a front end
-takes through it: a function the builder assembles, refused by name when it is
-wrong, and printed and parsed again unchanged when it is right. The evidence is
-that round trip, over the corpus the verifier already accepts and the corpus it
-refuses.
+Landed: the builder a front end writes against. Blocks, the cursor, one method
+per opcode, and source variables that become block parameters at joins:
+`declare_var`, `def_var` and `use_var` with explicit sealing, single-predecessor
+resolution, and the `if_` and `loop_` helpers on top. A test calls every opcode
+through its method and verifies the module, so a method that disappears fails
+there instead of in a front end.
+
+Left: the evidence for this release is the round trip, a function the builder
+assembles, printed and parsed again unchanged. The printer that makes that
+possible is not written, so a function built through the builder verifies today
+and cannot be written back yet.
 
 ## 0.2.0: one target, integer code
 
