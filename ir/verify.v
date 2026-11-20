@@ -71,6 +71,7 @@ pub fn verify_function(module &Module, function &Function) []VerifyError {
 	}
 	preds := predecessors(function)
 	reachable := reachable_blocks(function)
+	idom := dominators(function, preds)
 	context.block = 0
 	context.check_entry(function, preds)
 	context.block = -1
@@ -80,11 +81,22 @@ pub fn verify_function(module &Module, function &Function) []VerifyError {
 		if !reachable[bi] {
 			context.error('V022', '${block_name(function, bi)} is not reachable from the entry block')
 		}
-		context.check_block_structure(function, bi)
 		context.check_block_params(function, bi)
-		context.inst = function.blocks[bi].instructions.len
-		if !function.blocks[bi].terminator.opcode.is_terminator() {
+		block := function.blocks[bi]
+		for ii in 0 .. block.instructions.len {
+			context.inst = ii
+			inst := block.instructions[ii]
+			if inst.opcode.is_terminator() {
+				context.error('V003', "'${inst.opcode.name()}' is a terminator, so it ends its block and does not sit in the instruction list")
+				continue
+			}
+			context.check_uses(function, inst, idom, reachable)
+		}
+		context.inst = block.instructions.len
+		if !block.terminator.opcode.is_terminator() {
 			context.error('V003', 'the block has no terminator')
+		} else {
+			context.check_uses(function, block.terminator, idom, reachable)
 		}
 	}
 	return context.errors
@@ -340,15 +352,6 @@ fn (mut c VerifyContext) check_entry(function &Function, predecessors [][]int) {
 	}
 }
 
-fn (mut c VerifyContext) check_block_structure(function &Function, bi int) {
-	for ii, inst in function.blocks[bi].instructions {
-		if inst.opcode.is_terminator() {
-			c.inst = ii
-			c.error('V003', "'${inst.opcode.name()}' is a terminator, so it ends its block and does not sit in the instruction list")
-		}
-	}
-}
-
 // check_block_params requires every block parameter to be a value of this block
 // with a type the model has. The table's own bookkeeping is in check_value_table.
 fn (mut c VerifyContext) check_block_params(function &Function, bi int) {
@@ -360,6 +363,191 @@ fn (mut c VerifyContext) check_block_params(function &Function, bi int) {
 		problem := type_problem(value.typ)
 		if problem != '' {
 			c.error('V007', 'parameter ${i + 1} of ${block_name(function, bi)} has type ${value.typ.str()}: ${problem}')
+		}
+	}
+}
+
+// dominators is the immediate dominator of each reachable block, in the way
+// Cooper, Harvey and Kennedy describe: walk the graph once in reverse
+// postorder, then take each block's dominator as the intersection of its
+// predecessors'. The entry dominates itself; an unreachable block keeps -1.
+fn dominators(function &Function, preds [][]int) []int {
+	mut idom := []int{len: function.blocks.len, init: -1}
+	if function.blocks.len == 0 {
+		return idom
+	}
+	idom[0] = 0
+	mut postorder := []int{cap: function.blocks.len}
+	mut visited := []bool{len: function.blocks.len}
+	mut stack_blocks := []int{cap: function.blocks.len}
+	mut stack_next := []int{cap: function.blocks.len}
+	visited[0] = true
+	stack_blocks << 0
+	stack_next << 0
+	for stack_blocks.len > 0 {
+		top := stack_blocks.len - 1
+		block := stack_blocks[top]
+		next := stack_next[top]
+		reachable_from_block := successors(function, block)
+		if next < reachable_from_block.len {
+			stack_next[top] = next + 1
+			target := reachable_from_block[next]
+			if !visited[target] {
+				visited[target] = true
+				stack_blocks << target
+				stack_next << 0
+			}
+			continue
+		}
+		postorder << block
+		stack_blocks.delete_last()
+		stack_next.delete_last()
+	}
+	mut postnumber := []int{len: function.blocks.len, init: -1}
+	for i, block in postorder {
+		postnumber[block] = i
+	}
+	mut changed := true
+	for changed {
+		changed = false
+		for i := postorder.len - 1; i >= 0; i-- {
+			block := postorder[i]
+			if block == 0 {
+				continue
+			}
+			mut new_idom := -1
+			for pred in preds[block] {
+				if idom[pred] < 0 {
+					continue
+				}
+				if new_idom < 0 {
+					new_idom = pred
+				} else {
+					new_idom = intersect_dominators(pred, new_idom, idom, postnumber)
+				}
+			}
+			if new_idom >= 0 && idom[block] != new_idom {
+				idom[block] = new_idom
+				changed = true
+			}
+		}
+	}
+	return idom
+}
+
+fn intersect_dominators(a int, b int, idom []int, postnumber []int) int {
+	mut x := a
+	mut y := b
+	for x != y {
+		for postnumber[x] < postnumber[y] {
+			if idom[x] < 0 || idom[x] == x {
+				return y
+			}
+			x = idom[x]
+		}
+		for postnumber[y] < postnumber[x] {
+			if idom[y] < 0 || idom[y] == y {
+				return x
+			}
+			y = idom[y]
+		}
+	}
+	return x
+}
+
+// dominates walks the dominator tree up from the use. Two blocks in different
+// unreachable components are not compared: the unreachable one already failed
+// V022, and a second error there says nothing new.
+fn dominates(definition int, use int, idom []int, reachable []bool) bool {
+	if !reachable[definition] || !reachable[use] {
+		return true
+	}
+	if definition == use {
+		return true
+	}
+	mut block := use
+	for {
+		if block == definition {
+			return true
+		}
+		if block == 0 {
+			return false
+		}
+		next := idom[block]
+		if next < 0 || next == block {
+			return false
+		}
+		block = next
+	}
+}
+
+// check_uses walks every operand an instruction reads, which includes the
+// arguments a jump passes and the inputs an inline asm takes.
+fn (mut c VerifyContext) check_uses(function &Function, inst Instruction, idom []int,
+	reachable []bool) {
+	mut operands := []Operand{cap: inst.operands.len}
+	for operand in inst.operands {
+		operands << operand
+	}
+	for operand in inst.target.args {
+		operands << operand
+	}
+	for operand in inst.else_target.args {
+		operands << operand
+	}
+	for case_ in inst.cases {
+		for operand in case_.target.args {
+			operands << operand
+		}
+	}
+	for input in inst.asm.inputs {
+		operands << input.value
+	}
+	for operand in operands {
+		if operand.kind != .value {
+			continue
+		}
+		c.check_use(function, operand, idom, reachable)
+	}
+}
+
+// check_use holds V005 for a value id and V006 for the order of its definition.
+fn (mut c VerifyContext) check_use(function &Function, operand Operand, idom []int,
+	reachable []bool) {
+	index := operand.idx
+	if index < 0 || index >= function.values.len {
+		c.error('V005', 'value ${index} is not in the function value table, which holds ${function.values.len}')
+		return
+	}
+	if c.block < 0 || c.block >= function.blocks.len || !reachable[c.block] {
+		return
+	}
+	value := function.values[index]
+	match value.kind {
+		.function_param {}
+		.block_param {
+			if value.block < 0 || value.block >= function.blocks.len {
+				return
+			}
+			if !dominates(value.block, c.block, idom, reachable) {
+				c.error('V006', '${value_name(function, index)} is a parameter of ${block_name(function, value.block)}, which does not dominate ${block_name(function, c.block)}, where it is used')
+			}
+		}
+		.instruction_result {
+			if value.block == c.block {
+				if value.inst == c.inst {
+					c.error('V006', '${value_name(function, index)} is used by the instruction that defines it')
+				} else if value.inst > c.inst {
+					c.error('V006', '${value_name(function, index)} is used at index ${c.inst} of ${block_name(function, c.block)}, before its definition at index ${value.inst}')
+				}
+				return
+			}
+			if value.block < 0 || value.block >= function.blocks.len {
+				return
+			}
+			if !dominates(value.block, c.block, idom, reachable) {
+				c.error('V006', '${value_name(function, index)} is defined in ${block_name(function, value.block)} and used in ${block_name(function, c.block)}, which ${block_name(function, value.block)} does not dominate')
+			}
 		}
 	}
 }
@@ -440,6 +628,17 @@ fn block_name(function &Function, index int) string {
 		return 'block ${index}'
 	}
 	return label
+}
+
+fn value_name(function &Function, index int) string {
+	if index < 0 || index >= function.values.len {
+		return 'value ${index}'
+	}
+	name := function.values[index].name
+	if name == '' {
+		return 'value ${index}'
+	}
+	return '%${name}'
 }
 
 fn slot_name(slot StackSlot, index int) string {

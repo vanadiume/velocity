@@ -133,6 +133,37 @@ block1:
 		code:     'V022'
 		fragment: 'block1 is not reachable'
 	},
+	Refusal{
+		text:     'target 64 little 8
+fn @f(%arg0: i32) -> i32 {
+block0:
+  %v0 = icmp sgt %arg0, 0
+  condbr %v0, block1(), block2()
+block1:
+  %v1 = iconst i32 7
+  br block3()
+block2:
+  br block3()
+block3:
+  %v2 = iadd %v1, 1
+  return %v2
+}
+'
+		code:     'V006'
+		fragment: 'is defined in block1 and used in block3'
+	},
+	Refusal{
+		text:     'target 64 little 8
+fn @f() -> i32 {
+block0:
+  %v0 = iadd %v1, 1
+  %v1 = iconst i32 2
+  return %v0
+}
+'
+		code:     'V006'
+		fragment: 'before its definition at index 1'
+	},
 ]
 
 fn test_the_refused_corpus() {
