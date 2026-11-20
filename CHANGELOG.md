@@ -31,3 +31,4 @@ owns the change, which is the same vocabulary the commits use.
 * docs: the changelog for the scaffold (d2d49da)
 * docs: the changelog line for its own commit (f75342f)
 * docs: a manifesto with a mouth and a grudge (fc41e92)
+* docs: gimple is gold behind glass (864e0a9)
