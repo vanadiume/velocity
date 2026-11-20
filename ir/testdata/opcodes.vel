@@ -1,0 +1,144 @@
+target 64 little 8
+
+global @g: 8 bytes align 8
+
+extern fn @callee(%arg0: i32) -> i32
+
+fn @integers(%arg0: i32, %arg1: i32) -> i32 {
+block0:
+  %v0 = iconst i32 7
+  %v1 = fconst f32 0x3fc00000
+  %v2 = null
+  %v3 = poison i32
+  %v4 = freeze %v3
+  %v5 = iadd nsw nuw %arg0, %arg1
+  %v6 = isub %v0, %v5
+  %v7 = imul %v6, 3
+  %v8 = sdiv exact %v7, %arg1
+  %v9 = udiv %v8, %arg1
+  %v10 = srem %v9, %arg1
+  %v11 = urem %v10, %arg1
+  %v12 = ineg nsw %v11
+  %v13 = iabs %v12
+  %v14 = smin %v13, %arg1
+  %v15 = smax %v14, %arg1
+  %v16 = umin %v15, %arg1
+  %v17 = umax %v16, %arg1
+  %v18, %v19 = sadd_overflow %v17, %arg1
+  %v20, %v21 = uadd_overflow %v18, %arg1
+  %v22, %v23 = ssub_overflow %v20, %arg1
+  %v24, %v25 = usub_overflow %v22, %arg1
+  %v26, %v27 = smul_overflow %v24, %arg1
+  %v28, %v29 = umul_overflow %v26, %arg1
+  %v30 = sadd_sat %v28, %arg1
+  %v31 = uadd_sat %v30, %arg1
+  %v32 = ssub_sat %v31, %arg1
+  %v33 = usub_sat %v32, %arg1
+  %v34 = smul_sat %v33, %arg1
+  %v35 = umul_sat %v34, %arg1
+  %v36 = band %v35, %arg0
+  %v37 = bor %v36, %arg0
+  %v38 = bxor %v37, %arg0
+  %v39 = bnot %v38
+  %v40 = shl %v39, %arg0
+  %v41 = sshr %v40, %arg0
+  %v42 = ushr %v41, %arg0
+  %v43 = rotl %v42, %arg0
+  %v44 = rotr %v43, %arg0
+  %v45 = clz %v44
+  %v46 = ctz %v45
+  %v47 = popcnt %v46
+  %v48 = bswap %v47
+  %v49 = icmp ne %v48, %arg0
+  %v50 = fcmp oeq %v1, %v1
+  %v51 = select %v49, %v48, %arg0
+  return %v51
+}
+
+fn @floats(%arg0: f64, %arg1: f64) -> f64 {
+block0:
+  %v0 = fadd %arg0, %arg1
+  %v1 = fsub %v0, %arg1
+  %v2 = fmul %v1, %arg1
+  %v3 = fdiv %v2, %arg1
+  %v4 = frem %v3, %arg1
+  %v5 = fneg %v4
+  %v6 = fabs %v5
+  %v7 = fsqrt %v6
+  %v8 = fcopysign %v7, %arg1
+  %v9 = fma %v8, %arg1, %arg0
+  %v10 = fmin %v9, %arg1
+  %v11 = fmax %v10, %arg1
+  %v12 = fceil %v11
+  %v13 = ffloor %v12
+  %v14 = ftrunc %v13
+  %v15 = fnearest %v14
+  return %v15
+}
+
+fn @conversions(%arg0: i32, %arg1: f32, %arg2: ptr) -> i64 {
+block0:
+  %v0 = sext %arg0 to i64
+  %v1 = zext %arg0 to i64
+  %v2 = trunc %v0 to i8
+  %v3 = bitcast %arg1 to i32
+  %v4 = ptrtoint %arg2
+  %v5 = inttoptr %v0
+  %v6 = sitofp %arg0 to f64
+  %v7 = uitofp %arg0 to f64
+  %v8 = fptosi %v6 to i32
+  %v9 = fptoui %v6 to i32
+  %v10 = fpext %arg1 to f64
+  %v11 = fptrunc %v10 to f32
+  return %v0
+}
+
+fn @memory(%arg0: ptr, %arg1: ptr) {
+stack slot0: 16 bytes align 16
+block0:
+  %v0 = stack_addr slot0
+  %v1 = global_addr @g
+  %v2 = func_addr @callee
+  %v3 = load volatile %v0 : i32 align 4
+  store volatile %v1, %v3 align 4
+  %v4 = ptradd inbounds %v0, 4
+  memcpy %v4, %arg1, 16 align dst 8 align src 8
+  memmove %arg1, %v4, 16 align dst 8 align src 8
+  memset %v4, 0, 16 align 16
+  return
+}
+
+fn @control(%arg0: i32, %arg1: ptr) -> i32 {
+block0:
+  %v0 = icmp eq %arg0, 0
+  assume %v0
+  condbr %v0, block1(), block2()
+block1:
+  br block3(%arg0)
+block2:
+  switch %arg0, block3(0), 0: block3(1), 1: block3(2)
+block3(%v1: i32):
+  %v2 = call @callee(%v1)
+  %v3 = call_indirect %arg1 : (i32) -> i32 (%v2)
+  %v4 = call_indirect %arg1 : () -> i32 ()
+  unreachable
+block4:
+  trap 3
+}
+
+fn @tails(%arg0: i32, %arg1: ptr) -> i32 {
+block0:
+  tailcall @callee(%arg0)
+}
+
+fn @tail_indirect(%arg0: i32, %arg1: ptr) -> i32 {
+block0:
+  tailcall_indirect %arg1 : (i32) -> i32 (%arg0)
+}
+
+fn @asm(%arg0: i64, %arg1: i64) -> i64 {
+block0:
+  %v0, %v1 = inline_asm "mov $0, $2; mov $1, $3" out(i64, "=r") out(i64, "=r")
+    in(%arg0, "r") in(%arg1, "r") clobber("cc") alignstack intel
+  return %v0
+}
