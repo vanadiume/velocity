@@ -28,3 +28,4 @@ owns the change, which is the same vocabulary the commits use.
 * docs: a README that says what the library is for (b42b02e)
 * tools: a gate that runs before there is a suite (13ae75d)
 * github: issue forms that ask for the input and the emitted bytes (bf4bff0)
+* docs: the changelog for the scaffold (d2d49da)
