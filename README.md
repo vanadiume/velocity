@@ -59,11 +59,13 @@ stages above instruction selection.
 
 ## Status
 
-The IR model and the canonical text parser are in `ir/`. A module can be read
-from text and inspected: types, functions, blocks, instructions, globals and
-stack slots, with every opcode in the reference, and a malformed file is refused
-with the line and the column. There is no printer, no verifier, no builder and no
-encoder, so a parsed module can be read but not checked or written back.
+The IR model, the canonical text parser and the verifier are in `ir/`. A module
+can be read from text and checked: types, functions, blocks, instructions,
+globals and stack slots, with every opcode in the reference. A malformed file is
+refused with the line and the column, and a well formed one is checked against
+the twenty-two rules for structure, types, dominance, calls and reachability.
+There is no printer, no builder and no encoder, so a parsed module can be read
+and checked but not written back or emitted.
 [ROADMAP.md](ROADMAP.md) has the order the work takes, and the gate runs over the
 tree.
 

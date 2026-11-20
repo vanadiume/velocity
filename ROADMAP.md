@@ -5,22 +5,26 @@ when its paragraphs are true, not when its list is checked off.
 
 ## 0.0.x: the repository and the IR model
 
-Landed: the documents, the manifest, the gate, and the IR model in `ir/` with the
-parser for the canonical text form. Types of every width, functions, blocks with
-parameters, instructions with their flags and immediates, globals and stack
-slots, and a fixture that covers every opcode.
+Landed: the documents, the manifest, the gate, the IR model in `ir/` with the
+parser for the canonical text form, and the verifier. Types of every width,
+functions, blocks with parameters, instructions with their flags and immediates,
+globals and stack slots, and a fixture that covers every opcode. The verifier
+reports all twenty-two codes, names the block and the instruction a rule is
+about, and is tested by a corpus it accepts and a corpus it refuses.
 
 Left in this release: the printer, so a module cannot be written back and there
-is no round trip yet; the verifier, so a parsed function is not checked; the
-builder, so a front end cannot create one; and everything below the IR. A module
-can be read and inspected, not checked or emitted. No target yet.
+is no round trip yet; the builder, so a front end cannot create one; and
+everything below the IR. A module can be read, checked and inspected, not
+emitted. No target yet.
 
 ## 0.1.0: a function that verifies
 
-The builder a front end writes against, and the verifier that refuses a function
-which is not well formed. The evidence is a corpus of functions the verifier
-accepts, a corpus it refuses by name, and a round trip through the textual form
-that changes nothing.
+The builder a front end writes against. The verifier that refuses a function
+which is not well formed has landed, so what is left is the path a front end
+takes through it: a function the builder assembles, refused by name when it is
+wrong, and printed and parsed again unchanged when it is right. The evidence is
+that round trip, over the corpus the verifier already accepts and the corpus it
+refuses.
 
 ## 0.2.0: one target, integer code
 
