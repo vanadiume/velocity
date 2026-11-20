@@ -291,3 +291,206 @@ fn test_float_arithmetic_verifies() {
 	assert function.blocks[0].instructions[1].opcode == .fma
 	assert_verified_function(function)
 }
+
+fn test_conversions_verify() {
+	mut function := new_function('convert', [ty_i32, ty_i64, ty_f32, ty_f64, ty_ptr], [ty_i64])
+	mut builder := new_builder(mut function, builder_target())
+	entry := builder.create_entry_block()
+	builder.switch_to_block(entry)
+	small := builder.param(0)
+	large := builder.param(1)
+	narrow := builder.param(2)
+	wide := builder.param(3)
+	pointer := builder.param(4)
+	extended := builder.sext(small, ty_i64)
+	zeroed := builder.zext(small, ty_i64)
+	truncated := builder.trunc(large, ty_i32)
+	as_bits := builder.bitcast(wide, ty_i64)
+	from_int := builder.sitofp(small, ty_f64)
+	to_int := builder.fptosi(from_int, ty_i32)
+	wider := builder.fpext(narrow, ty_f64)
+	narrower := builder.fptrunc(wide, ty_f32)
+	address := builder.ptrtoint(pointer, ty_i64)
+	back := builder.inttoptr(address, ty_ptr)
+	builder.return_([address])
+	builder.finish()
+
+	_ = extended
+	_ = zeroed
+	_ = truncated
+	_ = as_bits
+	_ = to_int
+	_ = wider
+	_ = narrower
+	_ = back
+	assert function.blocks[0].instructions[0].opcode == .sext
+	assert function.blocks[0].instructions[0].typ == ty_i64
+	assert_verified_function(function)
+}
+
+fn test_select_verifies() {
+	mut function := new_function('pick', [ty_i32, ty_i32], [ty_i32])
+	mut builder := new_builder(mut function, builder_target())
+	entry := builder.create_entry_block()
+	builder.switch_to_block(entry)
+	condition := builder.icmp(.sgt, builder.param(0), builder.param(1))
+	chosen := builder.select(condition, builder.param(0), builder.param(1))
+	builder.return_([chosen])
+	builder.finish()
+	assert_verified_function(function)
+}
+
+fn test_memory_operations_verify() {
+	mut function := new_function('memory', [ty_ptr, ty_ptr, ty_i64], [ty_i64])
+	mut builder := new_builder(mut function, builder_target())
+	entry := builder.create_entry_block()
+	builder.switch_to_block(entry)
+	dst := builder.param(0)
+	src := builder.param(1)
+	len := builder.param(2)
+	loaded := builder.load(dst, ty_i64)
+	builder.store_aligned(src, loaded, 8)
+	shifted := builder.ptradd_flags(dst, builder.iconst(ty_i64, 8), flags(.inbounds))
+	read_back := builder.load_volatile_aligned(shifted, ty_i64, 8)
+	builder.store_volatile(shifted, read_back)
+	builder.memcpy(dst, src, len, 8, 8)
+	builder.memmove(src, dst, len, 8, 8)
+	builder.memset(dst, builder.iconst(ty_i8, 0), len, 8)
+	builder.return_([read_back])
+	builder.finish()
+
+	assert function.blocks[0].instructions[0].align == 8
+	assert function.blocks[0].instructions[3].flags.inbounds
+	assert_verified_function(function)
+}
+
+fn test_a_stack_slot_is_addressed() {
+	mut function := new_function('slot', [], [ty_i32])
+	mut builder := new_builder(mut function, builder_target())
+	entry := builder.create_entry_block()
+	builder.switch_to_block(entry)
+	slot := builder.create_stack_slot(16, 8, 'scratch')
+	address := builder.stack_addr(slot)
+	builder.store(address, builder.iconst(ty_i32, 5))
+	loaded := builder.load(address, ty_i32)
+	builder.return_([loaded])
+	builder.finish()
+
+	assert function.stack_slots[0].name or { '' } == 'scratch'
+	assert function.blocks[0].instructions[0].operands[0].kind == .stack_slot
+	assert_verified_function(function)
+}
+
+fn test_the_address_of_a_global_and_a_function_verify() {
+	mut function := new_function('addresses', [], [ty_ptr])
+	mut builder := new_builder(mut function, builder_target())
+	entry := builder.create_entry_block()
+	builder.switch_to_block(entry)
+	data := builder.global_addr('data')
+	code := builder.func_addr('helper')
+	builder.return_([data])
+	builder.finish()
+
+	module := Module{
+		target:    builder_target()
+		functions: [
+			Function{
+				name:      'helper'
+				signature: Signature{}
+			},
+			function,
+		]
+		globals:   [
+			Global{
+				name:  'data'
+				size:  8
+				align: 8
+			},
+		]
+	}
+	errors := verify_module(&module)
+	assert errors.len == 0, errors.map(it.msg()).join('\n')
+	_ = code
+}
+
+fn test_a_direct_call_and_a_tail_call_verify() {
+	mut function := new_function('caller', [ty_i32], [ty_i32])
+	mut builder := new_builder(mut function, builder_target())
+	entry := builder.create_entry_block()
+	builder.switch_to_block(entry)
+	signature := Signature{
+		params:  [ty_i32]
+		results: [ty_i32]
+	}
+	results := builder.call('callee', signature, [builder.param(0)])
+	builder.return_([results[0]])
+	builder.finish()
+
+	mut tail := new_function('tail', [ty_i32], [ty_i32])
+	mut tail_builder := new_builder(mut tail, builder_target())
+	tail_entry := tail_builder.create_entry_block()
+	tail_builder.switch_to_block(tail_entry)
+	tail_builder.tailcall('callee', signature, [tail_builder.param(0)])
+	tail_builder.finish()
+
+	module := Module{
+		target:    builder_target()
+		functions: [
+			Function{
+				name:      'callee'
+				signature: signature
+			},
+			function,
+			tail,
+		]
+	}
+	errors := verify_module(&module)
+	assert errors.len == 0, errors.map(it.msg()).join('\n')
+}
+
+fn test_an_indirect_call_verifies() {
+	mut function := new_function('dispatch', [ty_ptr, ty_i32], [ty_i32])
+	mut builder := new_builder(mut function, builder_target())
+	entry := builder.create_entry_block()
+	builder.switch_to_block(entry)
+	results := builder.call_indirect(builder.param(0), Signature{
+		params:  [ty_i32]
+		results: [ty_i32]
+	}, [builder.param(1)])
+	builder.return_([results[0]])
+	builder.finish()
+	assert function.blocks[0].terminator.opcode == .@return
+	assert_verified_function(function)
+}
+
+fn test_inline_asm_and_assume_verify() {
+	mut function := new_function('asm', [ty_i64], [ty_i64])
+	mut builder := new_builder(mut function, builder_target())
+	entry := builder.create_entry_block()
+	builder.switch_to_block(entry)
+	argument := builder.param(0)
+	builder.assume(builder.icmp(.ne, argument, builder.iconst(ty_i64, 0)))
+	outputs := builder.inline_asm(Asm{
+		template: 'mov $1, $0'
+		outputs:  [
+			AsmOutput{
+				typ:        ty_i64
+				constraint: '=r'
+			},
+		]
+		inputs:   [
+			AsmInput{
+				value:      argument
+				constraint: 'r'
+			},
+		]
+		clobbers: ['cc']
+		volatile: true
+	})
+	builder.return_([outputs[0]])
+	builder.finish()
+
+	assert function.blocks[0].instructions[3].asm.outputs.len == 1
+	assert function.blocks[0].instructions[3].asm.volatile
+	assert_verified_function(function)
+}

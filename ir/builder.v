@@ -1074,3 +1074,520 @@ pub fn (mut b Builder) ftrunc(value ValueRef) ValueRef {
 pub fn (mut b Builder) fnearest(value ValueRef) ValueRef {
 	return b.float_unop('fnearest', .fnearest, value)
 }
+
+// Conversions.
+
+fn (b &Builder) pointer_width(site string) u16 {
+	target := b.target or {
+		panic('${site}: the builder has no target, so it does not know the pointer width')
+	}
+	return target.pointer_width
+}
+
+fn (mut b Builder) convert(site string, op Opcode, value ValueRef, to Type) ValueRef {
+	mut inst := Instruction{
+		opcode: op
+		typ:    to
+	}
+	inst.operands << b.operand(value)
+	return b.push_inst(site, inst, [to])[0]
+}
+
+pub fn (mut b Builder) sext(value ValueRef, to Type) ValueRef {
+	from := b.value_type(value)
+	if !from.is_int() || !to.is_int() {
+		panic('sext: from ${from.str()} to ${to.str()}, expected integers')
+	}
+	if to.bits <= from.bits {
+		panic('sext: from ${from.str()} to ${to.str()}, expected a wider result')
+	}
+	return b.convert('sext', .sext, value, to)
+}
+
+pub fn (mut b Builder) zext(value ValueRef, to Type) ValueRef {
+	from := b.value_type(value)
+	if !from.is_int() || !to.is_int() {
+		panic('zext: from ${from.str()} to ${to.str()}, expected integers')
+	}
+	if to.bits <= from.bits {
+		panic('zext: from ${from.str()} to ${to.str()}, expected a wider result')
+	}
+	return b.convert('zext', .zext, value, to)
+}
+
+pub fn (mut b Builder) trunc(value ValueRef, to Type) ValueRef {
+	from := b.value_type(value)
+	if !from.is_int() || !to.is_int() {
+		panic('trunc: from ${from.str()} to ${to.str()}, expected integers')
+	}
+	if to.bits >= from.bits {
+		panic('trunc: from ${from.str()} to ${to.str()}, expected a narrower result')
+	}
+	return b.convert('trunc', .trunc, value, to)
+}
+
+pub fn (mut b Builder) bitcast(value ValueRef, to Type) ValueRef {
+	from := b.value_type(value)
+	if from.is_ptr() {
+		panic('bitcast: the operand has type ptr; use ptrtoint')
+	}
+	if to.is_ptr() {
+		panic('bitcast: the result is ptr; use inttoptr')
+	}
+	if from.bit_size(0) != to.bit_size(0) {
+		panic('bitcast: from ${from.str()} to ${to.str()}, expected equal bit widths')
+	}
+	return b.convert('bitcast', .bitcast, value, to)
+}
+
+pub fn (mut b Builder) ptrtoint(value ValueRef, to Type) ValueRef {
+	from := b.value_type(value)
+	if !from.is_ptr() {
+		panic('ptrtoint: the operand has type ${from.str()}, expected ptr')
+	}
+	width := b.pointer_width('ptrtoint')
+	if !to.is_int() {
+		panic('ptrtoint: the result is ${to.str()}, expected an integer')
+	}
+	if to.bits != width {
+		panic('ptrtoint: the result is ${to.str()}, expected the pointer width i${width}')
+	}
+	return b.convert('ptrtoint', .ptrtoint, value, to)
+}
+
+pub fn (mut b Builder) inttoptr(value ValueRef, to Type) ValueRef {
+	from := b.value_type(value)
+	if !from.is_int() {
+		panic('inttoptr: the operand has type ${from.str()}, expected an integer')
+	}
+	width := b.pointer_width('inttoptr')
+	if from.bits != width {
+		panic('inttoptr: the operand is ${from.str()}, expected the pointer width i${width}')
+	}
+	if !to.is_ptr() {
+		panic('inttoptr: the result is ${to.str()}, expected ptr')
+	}
+	return b.convert('inttoptr', .inttoptr, value, to)
+}
+
+pub fn (mut b Builder) sitofp(value ValueRef, to Type) ValueRef {
+	from := b.value_type(value)
+	if !from.is_int() || !to.is_float() {
+		panic('sitofp: from ${from.str()} to ${to.str()}, expected an integer to a float')
+	}
+	return b.convert('sitofp', .sitofp, value, to)
+}
+
+pub fn (mut b Builder) uitofp(value ValueRef, to Type) ValueRef {
+	from := b.value_type(value)
+	if !from.is_int() || !to.is_float() {
+		panic('uitofp: from ${from.str()} to ${to.str()}, expected an integer to a float')
+	}
+	return b.convert('uitofp', .uitofp, value, to)
+}
+
+pub fn (mut b Builder) fptosi(value ValueRef, to Type) ValueRef {
+	from := b.value_type(value)
+	if !from.is_float() || !to.is_int() {
+		panic('fptosi: from ${from.str()} to ${to.str()}, expected a float to an integer')
+	}
+	return b.convert('fptosi', .fptosi, value, to)
+}
+
+pub fn (mut b Builder) fptoui(value ValueRef, to Type) ValueRef {
+	from := b.value_type(value)
+	if !from.is_float() || !to.is_int() {
+		panic('fptoui: from ${from.str()} to ${to.str()}, expected a float to an integer')
+	}
+	return b.convert('fptoui', .fptoui, value, to)
+}
+
+pub fn (mut b Builder) fpext(value ValueRef, to Type) ValueRef {
+	from := b.value_type(value)
+	if !from.is_float() || !to.is_float() {
+		panic('fpext: from ${from.str()} to ${to.str()}, expected floats')
+	}
+	if to.bits <= from.bits {
+		panic('fpext: from ${from.str()} to ${to.str()}, expected a wider result')
+	}
+	return b.convert('fpext', .fpext, value, to)
+}
+
+pub fn (mut b Builder) fptrunc(value ValueRef, to Type) ValueRef {
+	from := b.value_type(value)
+	if !from.is_float() || !to.is_float() {
+		panic('fptrunc: from ${from.str()} to ${to.str()}, expected floats')
+	}
+	if to.bits >= from.bits {
+		panic('fptrunc: from ${from.str()} to ${to.str()}, expected a narrower result')
+	}
+	return b.convert('fptrunc', .fptrunc, value, to)
+}
+
+// Selection.
+
+pub fn (mut b Builder) select(condition ValueRef, a ValueRef, c ValueRef) ValueRef {
+	b.expect(condition, ty_i1, 'select condition')
+	typ := b.value_type(a)
+	if !typ.is_scalar() {
+		panic('select: value ${a.idx} has type ${typ.str()}, expected a scalar')
+	}
+	b.expect(c, typ, 'select')
+	mut inst := Instruction{
+		opcode: .@select
+	}
+	inst.operands << b.operand(condition)
+	inst.operands << b.operand(a)
+	inst.operands << b.operand(c)
+	return b.push_inst('select', inst, [typ])[0]
+}
+
+// Memory.
+
+fn (b &Builder) check_align(align u16, site string) {
+	if !is_power_of_two(int(align)) {
+		panic('${site}: align ${align} is not a power of two greater than zero')
+	}
+}
+
+fn (mut b Builder) load_with(site string, pointer ValueRef, typ Type, align u16, set FlagSet) ValueRef {
+	b.expect(pointer, ty_ptr, site)
+	if !typ.is_memory() {
+		panic('${site}: the result is ${typ.str()}, expected a byte-sized type')
+	}
+	b.check_align(align, site)
+	b.check_flags(.load, set, site)
+	mut inst := Instruction{
+		opcode: .load
+		typ:    typ
+		align:  align
+		flags:  set
+	}
+	inst.operands << b.operand(pointer)
+	return b.push_inst(site, inst, [typ])[0]
+}
+
+pub fn (mut b Builder) load(pointer ValueRef, typ Type) ValueRef {
+	return b.load_with('load', pointer, typ, b.natural_align(typ, 'load'), FlagSet{})
+}
+
+pub fn (mut b Builder) load_aligned(pointer ValueRef, typ Type, align u16) ValueRef {
+	return b.load_with('load_aligned', pointer, typ, align, FlagSet{})
+}
+
+pub fn (mut b Builder) load_volatile(pointer ValueRef, typ Type) ValueRef {
+	return b.load_with('load_volatile', pointer, typ, b.natural_align(typ, 'load_volatile'),
+		flags(.volatile))
+}
+
+pub fn (mut b Builder) load_volatile_aligned(pointer ValueRef, typ Type, align u16) ValueRef {
+	return b.load_with('load_volatile_aligned', pointer, typ, align, flags(.volatile))
+}
+
+fn (mut b Builder) store_with(site string, pointer ValueRef, value ValueRef, align u16,
+	set FlagSet) {
+	b.expect(pointer, ty_ptr, site)
+	typ := b.value_type(value)
+	if !typ.is_memory() {
+		panic('${site}: the value has type ${typ.str()}, expected a byte-sized type')
+	}
+	b.check_align(align, site)
+	b.check_flags(.store, set, site)
+	mut inst := Instruction{
+		opcode: .store
+		align:  align
+		flags:  set
+	}
+	inst.operands << b.operand(pointer)
+	inst.operands << b.operand(value)
+	b.push_inst(site, inst, [])
+}
+
+pub fn (mut b Builder) store(pointer ValueRef, value ValueRef) {
+	typ := b.value_type(value)
+	b.store_with('store', pointer, value, b.natural_align(typ, 'store'), FlagSet{})
+}
+
+pub fn (mut b Builder) store_aligned(pointer ValueRef, value ValueRef, align u16) {
+	b.store_with('store_aligned', pointer, value, align, FlagSet{})
+}
+
+pub fn (mut b Builder) store_volatile(pointer ValueRef, value ValueRef) {
+	typ := b.value_type(value)
+	b.store_with('store_volatile', pointer, value, b.natural_align(typ, 'store_volatile'),
+		flags(.volatile))
+}
+
+pub fn (mut b Builder) store_volatile_aligned(pointer ValueRef, value ValueRef, align u16) {
+	b.store_with('store_volatile_aligned', pointer, value, align, flags(.volatile))
+}
+
+fn (mut b Builder) ptradd_with(site string, pointer ValueRef, offset ValueRef, set FlagSet) ValueRef {
+	b.expect(pointer, ty_ptr, site)
+	typ := b.value_type(offset)
+	if !typ.is_int() {
+		panic('${site}: the offset has type ${typ.str()}, expected an integer')
+	}
+	b.check_flags(.ptradd, set, site)
+	mut inst := Instruction{
+		opcode: .ptradd
+		flags:  set
+	}
+	inst.operands << b.operand(pointer)
+	inst.operands << b.operand(offset)
+	return b.push_inst(site, inst, [ty_ptr])[0]
+}
+
+pub fn (mut b Builder) ptradd(pointer ValueRef, offset ValueRef) ValueRef {
+	return b.ptradd_with('ptradd', pointer, offset, FlagSet{})
+}
+
+pub fn (mut b Builder) ptradd_flags(pointer ValueRef, offset ValueRef, set FlagSet) ValueRef {
+	return b.ptradd_with('ptradd', pointer, offset, set)
+}
+
+fn (mut b Builder) copy_memory(site string, op Opcode, dst ValueRef, src ValueRef, len ValueRef,
+	align_dst u16, align_src u16) {
+	b.expect(dst, ty_ptr, '${site} dst')
+	b.expect(src, ty_ptr, '${site} src')
+	typ := b.value_type(len)
+	if !typ.is_int() {
+		panic('${site}: the length has type ${typ.str()}, expected an integer')
+	}
+	b.check_align(align_dst, '${site} dst')
+	b.check_align(align_src, '${site} src')
+	mut inst := Instruction{
+		opcode:    op
+		align_dst: align_dst
+		align_src: align_src
+	}
+	inst.operands << b.operand(dst)
+	inst.operands << b.operand(src)
+	inst.operands << b.operand(len)
+	b.push_inst(site, inst, [])
+}
+
+pub fn (mut b Builder) memcpy(dst ValueRef, src ValueRef, len ValueRef, align_dst u16,
+	align_src u16) {
+	b.copy_memory('memcpy', .memcpy, dst, src, len, align_dst, align_src)
+}
+
+pub fn (mut b Builder) memmove(dst ValueRef, src ValueRef, len ValueRef, align_dst u16,
+	align_src u16) {
+	b.copy_memory('memmove', .memmove, dst, src, len, align_dst, align_src)
+}
+
+pub fn (mut b Builder) memset(dst ValueRef, value ValueRef, len ValueRef, align u16) {
+	b.expect(dst, ty_ptr, 'memset dst')
+	b.expect(value, ty_i8, 'memset value')
+	typ := b.value_type(len)
+	if !typ.is_int() {
+		panic('memset: the length has type ${typ.str()}, expected an integer')
+	}
+	b.check_align(align, 'memset')
+	mut inst := Instruction{
+		opcode: .memset
+		align:  align
+	}
+	inst.operands << b.operand(dst)
+	inst.operands << b.operand(value)
+	inst.operands << b.operand(len)
+	b.push_inst('memset', inst, [])
+}
+
+pub fn (mut b Builder) stack_addr(slot int) ValueRef {
+	if slot < 0 || slot >= b.function.stack_slots.len {
+		panic('stack_addr: the function declares ${b.function.stack_slots.len} stack slots, so slot ${slot} does not exist')
+	}
+	mut inst := Instruction{
+		opcode: .stack_addr
+	}
+	inst.operands << Operand{
+		kind: .stack_slot
+		name: b.function.stack_slots[slot].name or { '' }
+		idx:  slot
+	}
+	return b.push_inst('stack_addr', inst, [ty_ptr])[0]
+}
+
+pub fn (mut b Builder) global_addr(name string) ValueRef {
+	return b.symbol_address('global_addr', .global_addr, .global, name)
+}
+
+pub fn (mut b Builder) func_addr(name string) ValueRef {
+	return b.symbol_address('func_addr', .func_addr, .function, name)
+}
+
+fn (mut b Builder) symbol_address(site string, op Opcode, kind SymbolKind, name string) ValueRef {
+	if name == '' {
+		panic('${site}: the symbol has no name')
+	}
+	mut inst := Instruction{
+		opcode: op
+	}
+	inst.operands << Operand{
+		kind: .symbol
+		name: name
+		sym:  kind
+		idx:  -1
+	}
+	return b.push_inst(site, inst, [ty_ptr])[0]
+}
+
+// Calls.
+
+fn (mut b Builder) check_arguments(site string, signature Signature, args []ValueRef) {
+	if args.len != signature.params.len {
+		panic('${site}: the call passes ${args.len} arguments, and the signature takes ${signature.params.len}')
+	}
+	for i, arg in args {
+		b.expect(arg, signature.params[i], '${site} argument ${i + 1}')
+	}
+}
+
+pub fn (mut b Builder) call(callee string, signature Signature, args []ValueRef) []ValueRef {
+	b.check_arguments('call', signature, args)
+	mut inst := Instruction{
+		opcode: .call
+	}
+	inst.operands << Operand{
+		kind: .symbol
+		name: callee
+		sym:  .function
+		idx:  -1
+	}
+	for arg in args {
+		inst.operands << b.operand(arg)
+	}
+	return b.push_inst('call', inst, signature.results)
+}
+
+pub fn (mut b Builder) call_indirect(pointer ValueRef, signature Signature, args []ValueRef) []ValueRef {
+	b.expect(pointer, ty_ptr, 'call_indirect pointer')
+	b.check_arguments('call_indirect', signature, args)
+	mut inst := Instruction{
+		opcode:    .call_indirect
+		signature: signature
+	}
+	inst.operands << b.operand(pointer)
+	for arg in args {
+		inst.operands << b.operand(arg)
+	}
+	return b.push_inst('call_indirect', inst, signature.results)
+}
+
+fn (mut b Builder) check_tail_signature(site string, signature Signature) {
+	if signature.results != b.function.signature.results {
+		panic('${site}: the callee returns ${signature.results.len} results, and the function returns ${b.function.signature.results.len}')
+	}
+}
+
+pub fn (mut b Builder) tailcall(callee string, signature Signature, args []ValueRef) {
+	b.check_arguments('tailcall', signature, args)
+	b.check_tail_signature('tailcall', signature)
+	mut inst := Instruction{
+		opcode: .tailcall
+	}
+	inst.operands << Operand{
+		kind: .symbol
+		name: callee
+		sym:  .function
+		idx:  -1
+	}
+	for arg in args {
+		inst.operands << b.operand(arg)
+	}
+	b.push_terminator('tailcall', inst)
+}
+
+pub fn (mut b Builder) tailcall_indirect(pointer ValueRef, signature Signature, args []ValueRef) {
+	b.expect(pointer, ty_ptr, 'tailcall_indirect pointer')
+	b.check_arguments('tailcall_indirect', signature, args)
+	b.check_tail_signature('tailcall_indirect', signature)
+	mut inst := Instruction{
+		opcode:    .tailcall_indirect
+		signature: signature
+	}
+	inst.operands << b.operand(pointer)
+	for arg in args {
+		inst.operands << b.operand(arg)
+	}
+	b.push_terminator('tailcall_indirect', inst)
+}
+
+pub fn (mut b Builder) assume(condition ValueRef) {
+	b.expect(condition, ty_i1, 'assume condition')
+	mut inst := Instruction{
+		opcode: .assume
+	}
+	inst.operands << b.operand(condition)
+	b.push_inst('assume', inst, [])
+}
+
+// Inline asm.
+
+pub struct AsmOutput {
+pub:
+	typ        Type
+	constraint string
+}
+
+pub struct AsmInput {
+pub:
+	value      ValueRef
+	constraint string
+}
+
+// Asm is the inline asm an instruction carries: a template, its outputs and
+// inputs with their constraints, and the flags the clauses name.
+pub struct Asm {
+pub:
+	template   string
+	outputs    []AsmOutput
+	inputs     []AsmInput
+	clobbers   []string
+	volatile   bool
+	alignstack bool
+	intel      bool
+}
+
+pub fn (mut b Builder) inline_asm(spec Asm) []ValueRef {
+	if spec.template == '' {
+		panic('inline_asm: the template is empty')
+	}
+	mut inst := Instruction{
+		opcode: .inline_asm
+	}
+	inst.asm = InlineAsm{
+		template:   spec.template
+		clobbers:   spec.clobbers
+		volatile:   spec.volatile
+		alignstack: spec.alignstack
+		intel:      spec.intel
+	}
+	mut results := []Type{cap: spec.outputs.len}
+	for i, output in spec.outputs {
+		if !output.typ.is_scalar() {
+			panic('inline_asm: output ${i + 1} has type ${output.typ.str()}, expected a scalar')
+		}
+		if output.constraint == '' {
+			panic('inline_asm: output ${i + 1} names no constraint')
+		}
+		inst.asm.outputs << InlineAsmOutput{
+			typ:        output.typ
+			constraint: output.constraint
+		}
+		results << output.typ
+	}
+	for i, input in spec.inputs {
+		if input.constraint == '' {
+			panic('inline_asm: input ${i + 1} names no constraint')
+		}
+		_ = b.value_type(input.value)
+		inst.asm.inputs << InlineAsmInput{
+			value:      b.operand(input.value)
+			constraint: input.constraint
+		}
+	}
+	return b.push_inst('inline_asm', inst, results)
+}
