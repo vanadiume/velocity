@@ -494,3 +494,215 @@ fn test_inline_asm_and_assume_verify() {
 	assert function.blocks[0].instructions[3].asm.volatile
 	assert_verified_function(function)
 }
+
+fn test_a_join_creates_one_parameter_per_live_variable() {
+	mut function := new_function('diamond', [ty_i1], [ty_i32])
+	mut builder := new_builder(mut function, builder_target())
+	entry := builder.create_entry_block()
+	builder.switch_to_block(entry)
+	condition := builder.param(0)
+	x := builder.declare_var(ty_i32)
+	builder.def_var(x, builder.iconst(ty_i32, 0))
+	then_block := builder.create_block()
+	else_block := builder.create_block()
+	join := builder.create_block()
+	builder.condbr(condition, then_block, [], else_block, [])
+	builder.switch_to_block(then_block)
+	builder.def_var(x, builder.iconst(ty_i32, 1))
+	builder.br(join, [])
+	builder.switch_to_block(else_block)
+	builder.def_var(x, builder.iconst(ty_i32, 2))
+	builder.br(join, [])
+	builder.switch_to_block(join)
+	builder.seal_block(join)
+	result := builder.use_var(x)
+	builder.return_([result])
+	builder.finish()
+
+	assert function.blocks[join].params.len == 1
+	parameter := function.blocks[join].params[0]
+	assert function.values[parameter].typ == ty_i32
+	assert function.values[parameter].kind == .block_param
+	assert function.blocks[join].terminator.operands[0].idx == parameter
+	assert function.blocks[then_block].terminator.target.args.len == 1
+	assert function.blocks[else_block].terminator.target.args.len == 1
+	then_value := function.blocks[then_block].instructions[0].results[0]
+	else_value := function.blocks[else_block].instructions[0].results[0]
+	assert function.blocks[then_block].terminator.target.args[0].idx == then_value
+	assert function.blocks[else_block].terminator.target.args[0].idx == else_value
+	assert_verified_function(function)
+}
+
+fn test_a_variable_defined_in_one_arm_reads_the_incoming_value() {
+	mut function := new_function('one_arm', [ty_i1], [ty_i32])
+	mut builder := new_builder(mut function, builder_target())
+	entry := builder.create_entry_block()
+	builder.switch_to_block(entry)
+	condition := builder.param(0)
+	x := builder.declare_var(ty_i32)
+	incoming := builder.iconst(ty_i32, 0)
+	builder.def_var(x, incoming)
+	then_block := builder.create_block()
+	else_block := builder.create_block()
+	join := builder.create_block()
+	builder.condbr(condition, then_block, [], else_block, [])
+	builder.switch_to_block(then_block)
+	builder.def_var(x, builder.iconst(ty_i32, 1))
+	builder.br(join, [])
+	builder.switch_to_block(else_block)
+	builder.br(join, [])
+	builder.switch_to_block(join)
+	builder.seal_block(join)
+	result := builder.use_var(x)
+	builder.return_([result])
+	builder.finish()
+
+	assert function.blocks[join].params.len == 1
+	assert function.blocks[else_block].terminator.target.args.len == 1
+	assert function.blocks[else_block].terminator.target.args[0].idx == incoming.idx
+	assert_verified_function(function)
+}
+
+fn test_a_loop_header_waits_for_its_back_edge() {
+	mut function := new_function('sum', [ty_i32], [ty_i32])
+	mut builder := new_builder(mut function, builder_target())
+	entry := builder.create_entry_block()
+	builder.switch_to_block(entry)
+	limit := builder.param(0)
+	i := builder.declare_var(ty_i32)
+	acc := builder.declare_var(ty_i32)
+	builder.def_var(i, builder.iconst(ty_i32, 0))
+	builder.def_var(acc, builder.iconst(ty_i32, 0))
+	head := builder.create_block()
+	builder.br(head, [])
+	builder.switch_to_block(head)
+	done := builder.icmp(.sge, builder.use_var(i), limit)
+	body := builder.create_block()
+	exit := builder.create_block()
+	builder.condbr(done, exit, [], body, [])
+	builder.switch_to_block(body)
+	next := builder.iadd_flags(builder.use_var(i), builder.iconst(ty_i32, 1), flags(.nsw))
+	builder.def_var(acc, builder.iadd(builder.use_var(acc), builder.use_var(i)))
+	builder.def_var(i, next)
+	builder.br(head, [])
+	builder.seal_block(head)
+	builder.seal_block(body)
+	builder.switch_to_block(exit)
+	builder.seal_block(exit)
+	builder.return_([builder.use_var(acc)])
+	builder.finish()
+
+	assert function.blocks[head].params.len == 2
+	assert function.blocks[entry].terminator.target.args.len == 2
+	assert function.blocks[body].terminator.target.args.len == 2
+	assert function.blocks[exit].params.len == 0
+	assert_verified_function(function)
+}
+
+fn test_a_use_before_the_definition_reads_the_incoming_value() {
+	mut function := new_function('shadow', [], [ty_i32])
+	mut builder := new_builder(mut function, builder_target())
+	entry := builder.create_entry_block()
+	builder.switch_to_block(entry)
+	x := builder.declare_var(ty_i32)
+	five := builder.iconst(ty_i32, 5)
+	builder.def_var(x, five)
+	next := builder.create_block()
+	builder.br(next, [])
+	builder.switch_to_block(next)
+	before := builder.use_var(x)
+	builder.def_var(x, builder.iconst(ty_i32, 7))
+	after := builder.use_var(x)
+	total := builder.iadd(before, after)
+	builder.return_([total])
+	builder.seal_block(next)
+	builder.finish()
+
+	assert before.idx < 0
+	assert function.blocks[next].params.len == 0
+	addition := function.blocks[next].instructions[1]
+	assert addition.opcode == .iadd
+	assert addition.operands[0].idx == five.idx
+	assert addition.operands[1].idx == after.idx
+	assert_verified_function(function)
+}
+
+fn test_one_predecessor_resolves_the_use_directly() {
+	mut function := new_function('direct', [], [ty_i32])
+	mut builder := new_builder(mut function, builder_target())
+	entry := builder.create_entry_block()
+	builder.switch_to_block(entry)
+	x := builder.declare_var(ty_i32)
+	three := builder.iconst(ty_i32, 3)
+	builder.def_var(x, three)
+	next := builder.create_block()
+	builder.br(next, [])
+	builder.switch_to_block(next)
+	result := builder.use_var(x)
+	builder.return_([result])
+	builder.seal_block(next)
+	builder.finish()
+
+	assert function.blocks[next].params.len == 0
+	assert function.blocks[entry].terminator.target.args.len == 0
+	assert function.blocks[next].terminator.operands[0].idx == three.idx
+	assert_verified_function(function)
+}
+
+fn test_a_pending_value_is_patched_when_its_block_is_sealed() {
+	mut function := new_function('late', [ty_i1], [ty_i32])
+	mut builder := new_builder(mut function, builder_target())
+	entry := builder.create_entry_block()
+	builder.switch_to_block(entry)
+	condition := builder.param(0)
+	x := builder.declare_var(ty_i32)
+	builder.def_var(x, builder.iconst(ty_i32, 0))
+	then_block := builder.create_block()
+	else_block := builder.create_block()
+	join := builder.create_block()
+	builder.condbr(condition, then_block, [], else_block, [])
+	builder.switch_to_block(then_block)
+	builder.def_var(x, builder.iconst(ty_i32, 1))
+	builder.br(join, [])
+	builder.switch_to_block(else_block)
+	builder.def_var(x, builder.iconst(ty_i32, 2))
+	builder.br(join, [])
+	builder.switch_to_block(join)
+	pending := builder.use_var(x)
+	total := builder.iadd(pending, builder.iconst(ty_i32, 1))
+	builder.seal_block(join)
+	builder.return_([total])
+	builder.finish()
+
+	assert pending.idx < 0
+	assert function.blocks[join].params.len == 1
+	assert function.blocks[join].instructions[1].operands[0].idx == function.blocks[join].params[0]
+	assert_verified_function(function)
+}
+
+fn test_a_switch_target_gets_an_argument_per_edge() {
+	mut function := new_function('twice', [ty_i32], [ty_i32])
+	mut builder := new_builder(mut function, builder_target())
+	entry := builder.create_entry_block()
+	builder.switch_to_block(entry)
+	selector := builder.param(0)
+	x := builder.declare_var(ty_i32)
+	builder.def_var(x, builder.iconst(ty_i32, 1))
+	join := builder.create_block()
+	builder.switch_(selector, join, [], [
+		Case{
+			value: u128(1)
+			block: join
+		},
+	])
+	builder.switch_to_block(join)
+	builder.seal_block(join)
+	builder.return_([builder.use_var(x)])
+	builder.finish()
+
+	assert function.blocks[join].params.len == 1
+	assert function.blocks[entry].terminator.target.args.len == 1
+	assert function.blocks[entry].terminator.cases[0].target.args.len == 1
+	assert function.blocks[entry].terminator.target.args[0].idx == function.blocks[entry].terminator.cases[0].target.args[0].idx
+	assert_verified_function(function)
+}

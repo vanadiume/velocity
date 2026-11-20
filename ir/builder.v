@@ -48,6 +48,10 @@ struct PendingValue {
 	variable int
 	typ      Type
 mut:
+	// value is the index the boundary resolved this use to, -1 while it is
+	// still waiting. A negative value means it resolved to another pending use,
+	// which deref follows.
+	value int
 	sites []UseSite
 }
 
@@ -66,6 +70,7 @@ mut:
 	edges          [][]Edge
 	pending        [][]int       // pending value indices, in creation order, per block
 	pending_vars   []map[int]int // variable id to pending index, per block
+	resolving      []bool        // the block whose boundary is being resolved
 	pending_values []PendingValue
 	variables      []Variable
 }
@@ -147,6 +152,7 @@ pub fn (mut b Builder) create_block() int {
 	b.edges << []Edge{}
 	b.pending << []int{}
 	b.pending_vars << map[int]int{}
+	b.resolving << false
 	return index
 }
 
@@ -565,6 +571,10 @@ fn (mut b Builder) record_use(operand Operand, site UseSite) {
 // pending handles start at -2.
 fn pending_index(idx int) int {
 	return -idx - 2
+}
+
+fn pending_index_of(token int) int {
+	return -token - 2
 }
 
 // value_type is the type of a handle: the table's entry when it has one, and
@@ -1590,4 +1600,280 @@ pub fn (mut b Builder) inline_asm(spec Asm) []ValueRef {
 		}
 	}
 	return b.push_inst('inline_asm', inst, results)
+}
+
+// Variables and SSA construction.
+
+// declare_var creates a source variable. It is a handle the frontend reuses;
+// the values it holds are ordinary SSA values.
+pub fn (mut b Builder) declare_var(typ Type) Variable {
+	problem := type_problem(typ)
+	if problem != '' {
+		panic('declare_var: ${typ.str()}: ${problem}')
+	}
+	id := b.variables.len
+	variable := Variable{
+		id:  id
+		typ: typ
+	}
+	b.variables << variable
+	return variable
+}
+
+fn (b &Builder) check_var(variable Variable, site string) {
+	if variable.id < 0 || variable.id >= b.variables.len
+		|| b.variables[variable.id].typ != variable.typ {
+		panic('${site}: variable ${variable.id} is not one this builder declared')
+	}
+}
+
+// def_var records the value the variable has from here to the end of the block.
+pub fn (mut b Builder) def_var(variable Variable, value ValueRef) {
+	b.check_var(variable, 'def_var')
+	b.check_can_emit('def_var')
+	b.expect(value, variable.typ, 'def_var')
+	block := b.current_block
+	mut defs := b.defs[block]
+	defs[variable.id] = b.deref(value.idx)
+	b.defs[block] = defs
+}
+
+// use_var is the value the variable has at the cursor. A block that has no
+// definition yet asks its incoming edges, which is what creates a block
+// parameter at a join.
+pub fn (mut b Builder) use_var(variable Variable) ValueRef {
+	b.check_var(variable, 'use_var')
+	if b.current_block < 0 {
+		panic('use_var: the builder has no current block; call create_entry_block or switch_to_block first')
+	}
+	block := b.current_block
+	if variable.id in b.defs[block] {
+		return ValueRef{
+			idx: b.deref(b.defs[block][variable.id])
+			typ: variable.typ
+		}
+	}
+	if block == 0 {
+		panic("use_var: block '${b.function.blocks[block].label}' is the entry block, and variable ${variable.id} has no definition before this use")
+	}
+	if !b.sealed[block] {
+		return b.pending_use(block, variable)
+	}
+	return b.resolve_boundary(block, variable)
+}
+
+fn (mut b Builder) pending_use(block int, variable Variable) ValueRef {
+	if variable.id in b.pending_vars[block] {
+		token := b.pending_vars[block][variable.id]
+		return ValueRef{
+			idx: pending_index_of(token)
+			typ: variable.typ
+		}
+	}
+	token := b.pending_values.len
+	b.pending_values << PendingValue{
+		block:    block
+		variable: variable.id
+		typ:      variable.typ
+		value:    -1
+	}
+	b.pending[block] << token
+	mut vars := b.pending_vars[block]
+	vars[variable.id] = token
+	b.pending_vars[block] = vars
+	return ValueRef{
+		idx: pending_index_of(token)
+		typ: variable.typ
+	}
+}
+
+// deref follows a pending handle to the value it resolved to. A token still
+// waiting resolves to itself, so the handle stays usable until its block is
+// sealed.
+fn (b &Builder) deref(idx int) int {
+	mut out := idx
+	for out < 0 {
+		token := pending_index(out)
+		if token < 0 || token >= b.pending_values.len {
+			return out
+		}
+		resolved := b.pending_values[token].value
+		if resolved < 0 {
+			return out
+		}
+		out = resolved
+	}
+	return out
+}
+
+// resolve_at is the value a variable has at the end of a block: its last
+// definition, a pending use while the block is open, or the block boundary.
+fn (mut b Builder) resolve_at(block int, variable Variable) ValueRef {
+	if variable.id in b.defs[block] {
+		return ValueRef{
+			idx: b.deref(b.defs[block][variable.id])
+			typ: variable.typ
+		}
+	}
+	if !b.sealed[block] && !b.function.blocks[block].terminator.opcode.is_terminator() {
+		return b.pending_use(block, variable)
+	}
+	return b.resolve_boundary(block, variable)
+}
+
+// resolve_boundary is the value coming into a block for a variable. One
+// predecessor is resolved through with no parameter; several become a block
+// parameter and every incoming jump gets the predecessor's value appended.
+fn (mut b Builder) resolve_boundary(block int, variable Variable) ValueRef {
+	if variable.id in b.boundary[block] {
+		return ValueRef{
+			idx: b.boundary[block][variable.id]
+			typ: variable.typ
+		}
+	}
+	if b.resolving[block] {
+		panic("the variable ${variable.id} is used in a cycle of blocks with no definition on any path, starting at '${b.function.blocks[block].label}'")
+	}
+	b.resolving[block] = true
+	defer {
+		b.resolving[block] = false
+	}
+	edges := b.edges[block]
+	if edges.len == 0 {
+		panic("the use of variable ${variable.id} in block '${b.function.blocks[block].label}' has no definition on any path")
+	}
+	if edges.len == 1 {
+		edge := edges[0]
+		if edge.block == block {
+			panic("the use of variable ${variable.id} in block '${b.function.blocks[block].label}' has no definition and only a self edge")
+		}
+		value := b.resolve_at(edge.block, variable)
+		if value.idx >= 0 {
+			mut boundary := b.boundary[block]
+			boundary[variable.id] = value.idx
+			b.boundary[block] = boundary
+		}
+		return value
+	}
+	param := b.push_value(variable.typ, .block_param, block, -1)
+	b.function.blocks[block].params << param
+	mut boundary := b.boundary[block]
+	boundary[variable.id] = param
+	b.boundary[block] = boundary
+	for edge in edges {
+		value := if edge.block == block {
+			ValueRef{
+				idx: param
+				typ: variable.typ
+			}
+		} else {
+			b.resolve_at(edge.block, variable)
+		}
+		b.append_jump_arg(edge, value)
+	}
+	return ValueRef{
+		idx: param
+		typ: variable.typ
+	}
+}
+
+// seal_block resolves every use that was waiting on the block boundary, in the
+// order the uses were written. Sealing a sealed block does nothing.
+pub fn (mut b Builder) seal_block(block int) {
+	b.check_block(block, 'seal_block')
+	if b.sealed[block] {
+		return
+	}
+	b.sealed[block] = true
+	tokens := b.pending[block]
+	for token in tokens {
+		pending := b.pending_values[token]
+		value := b.resolve_boundary(block, b.variables[pending.variable])
+		b.pending_values[token].value = b.deref(value.idx)
+		for site in pending.sites {
+			b.patch_use(site, ValueRef{
+				idx: b.pending_values[token].value
+				typ: b.variables[pending.variable].typ
+			})
+		}
+	}
+	b.pending[block] = []int{}
+	b.pending_vars[block] = map[int]int{}
+}
+
+// append_jump_arg appends one argument to a predecessor's jump and records the
+// site when the value is still pending.
+fn (mut b Builder) append_jump_arg(edge Edge, value ValueRef) {
+	mut terminator := b.function.blocks[edge.block].terminator
+	mut arg_index := 0
+	match edge.which {
+		2 {
+			arg_index = terminator.else_target.args.len
+			terminator.else_target.args << b.operand(value)
+		}
+		4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 {
+			case_index := edge.which - 4
+			arg_index = terminator.cases[case_index].target.args.len
+			terminator.cases[case_index].target.args << b.operand(value)
+		}
+		else {
+			arg_index = terminator.target.args.len
+			terminator.target.args << b.operand(value)
+		}
+	}
+	b.function.blocks[edge.block].terminator = terminator
+	if value.idx < 0 {
+		b.record_use(b.operand(value), UseSite{
+			block: edge.block
+			inst:  -1
+			kind:  .jump_arg
+			which: edge.which
+			index: arg_index
+		})
+	}
+}
+
+fn (mut b Builder) patch_use(site UseSite, value ValueRef) {
+	index := b.deref(value.idx)
+	b.patch_site(site, index)
+	if index < 0 {
+		token := pending_index(index)
+		b.pending_values[token].sites << site
+	}
+}
+
+fn (mut b Builder) patch_site(site UseSite, idx int) {
+	match site.kind {
+		.operand {
+			if site.inst < 0 {
+				mut terminator := b.function.blocks[site.block].terminator
+				terminator.operands[site.index].idx = idx
+				b.function.blocks[site.block].terminator = terminator
+			} else {
+				mut inst := b.function.blocks[site.block].instructions[site.inst]
+				inst.operands[site.index].idx = idx
+				b.function.blocks[site.block].instructions[site.inst] = inst
+			}
+		}
+		.asm_input {
+			mut inst := b.function.blocks[site.block].instructions[site.inst]
+			inst.asm.inputs[site.index].value.idx = idx
+			b.function.blocks[site.block].instructions[site.inst] = inst
+		}
+		.jump_arg {
+			mut terminator := b.function.blocks[site.block].terminator
+			match site.which {
+				2 {
+					terminator.else_target.args[site.index].idx = idx
+				}
+				4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 {
+					terminator.cases[site.which - 4].target.args[site.index].idx = idx
+				}
+				else {
+					terminator.target.args[site.index].idx = idx
+				}
+			}
+			b.function.blocks[site.block].terminator = terminator
+		}
+	}
 }
