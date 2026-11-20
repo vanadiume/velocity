@@ -553,6 +553,7 @@ fn test_a_variable_defined_in_one_arm_reads_the_incoming_value() {
 	builder.br(join, [])
 	builder.switch_to_block(join)
 	builder.seal_block(join)
+	builder.seal_block(else_block)
 	result := builder.use_var(x)
 	builder.return_([result])
 	builder.finish()
@@ -704,5 +705,34 @@ fn test_a_switch_target_gets_an_argument_per_edge() {
 	assert function.blocks[entry].terminator.target.args.len == 1
 	assert function.blocks[entry].terminator.cases[0].target.args.len == 1
 	assert function.blocks[entry].terminator.target.args[0].idx == function.blocks[entry].terminator.cases[0].target.args[0].idx
+	assert_verified_function(function)
+}
+
+fn test_a_switch_with_many_cases_passes_arguments_to_each_edge() {
+	mut function := new_function('many', [ty_i32], [ty_i32])
+	mut builder := new_builder(mut function, builder_target())
+	entry := builder.create_entry_block()
+	builder.switch_to_block(entry)
+	selector := builder.param(0)
+	x := builder.declare_var(ty_i32)
+	builder.def_var(x, builder.iconst(ty_i32, 1))
+	join := builder.create_block()
+	mut cases := []Case{cap: 14}
+	for value in 1 .. 15 {
+		cases << Case{
+			value: u128(value)
+			block: join
+		}
+	}
+	builder.switch_(selector, join, [], cases)
+	builder.switch_to_block(join)
+	builder.seal_block(join)
+	builder.return_([builder.use_var(x)])
+	builder.finish()
+
+	assert function.blocks[entry].terminator.cases.len == 14
+	assert function.blocks[join].params.len == 1
+	assert function.blocks[entry].terminator.target.args.len == 1
+	assert function.blocks[entry].terminator.cases[13].target.args.len == 1
 	assert_verified_function(function)
 }

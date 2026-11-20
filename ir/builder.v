@@ -136,6 +136,9 @@ pub fn (mut b Builder) create_entry_block() int {
 	}
 	b.entry_created = true
 	block := b.create_block()
+	// The entry block has no predecessors and never can, so its boundary is
+	// final from the start.
+	b.sealed[block] = true
 	b.current_block = block
 	return block
 }
@@ -1715,7 +1718,7 @@ fn (mut b Builder) resolve_at(block int, variable Variable) ValueRef {
 			typ: variable.typ
 		}
 	}
-	if !b.sealed[block] && !b.function.blocks[block].terminator.opcode.is_terminator() {
+	if !b.sealed[block] {
 		return b.pending_use(block, variable)
 	}
 	return b.resolve_boundary(block, variable)
@@ -1807,18 +1810,18 @@ fn (mut b Builder) append_jump_arg(edge Edge, value ValueRef) {
 	mut terminator := b.function.blocks[edge.block].terminator
 	mut arg_index := 0
 	match edge.which {
+		0, 1, 3 {
+			arg_index = terminator.target.args.len
+			terminator.target.args << b.operand(value)
+		}
 		2 {
 			arg_index = terminator.else_target.args.len
 			terminator.else_target.args << b.operand(value)
 		}
-		4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 {
+		else {
 			case_index := edge.which - 4
 			arg_index = terminator.cases[case_index].target.args.len
 			terminator.cases[case_index].target.args << b.operand(value)
-		}
-		else {
-			arg_index = terminator.target.args.len
-			terminator.target.args << b.operand(value)
 		}
 	}
 	b.function.blocks[edge.block].terminator = terminator
@@ -1863,14 +1866,14 @@ fn (mut b Builder) patch_site(site UseSite, idx int) {
 		.jump_arg {
 			mut terminator := b.function.blocks[site.block].terminator
 			match site.which {
+				0, 1, 3 {
+					terminator.target.args[site.index].idx = idx
+				}
 				2 {
 					terminator.else_target.args[site.index].idx = idx
 				}
-				4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 {
-					terminator.cases[site.which - 4].target.args[site.index].idx = idx
-				}
 				else {
-					terminator.target.args[site.index].idx = idx
+					terminator.cases[site.which - 4].target.args[site.index].idx = idx
 				}
 			}
 			b.function.blocks[site.block].terminator = terminator
