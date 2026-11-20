@@ -383,3 +383,278 @@ fn test_the_refused_corpus() {
 		assert found, 'expected ${row.code} containing "${row.fragment}", got:\n${errors.map(it.msg()).join('\n')}'
 	}
 }
+
+fn target64() TargetInfo {
+	return TargetInfo{
+		pointer_width: 64
+		pointer_align: 8
+		endian:        .little
+	}
+}
+
+fn messages(errors []VerifyError) string {
+	return errors.map(it.msg()).join('\n')
+}
+
+fn test_a_terminator_inside_the_instruction_list_is_refused() {
+	mut function := Function{
+		name:    'f'
+		defined: true
+	}
+	function.blocks << Block{
+		label:        'block0'
+		instructions: [Instruction{ opcode: .br }]
+		terminator:   Instruction{ opcode: .@return }
+	}
+	module := Module{
+		target:    target64()
+		functions: [function]
+	}
+	errors := verify_module(module)
+	assert errors.len == 1, messages(errors)
+	assert errors[0].code == 'V003'
+	assert errors[0].message.contains("'br' is a terminator")
+	assert errors[0].function or { '' } == 'f'
+	assert errors[0].block or { 99 } == 0
+	assert errors[0].inst or { 99 } == 0
+}
+
+fn test_a_block_with_no_terminator_is_refused() {
+	mut function := Function{
+		name:    'f'
+		defined: true
+	}
+	function.blocks << Block{
+		label:      'block0'
+		terminator: Instruction{ opcode: .iconst }
+	}
+	module := Module{
+		target:    target64()
+		functions: [function]
+	}
+	errors := verify_module(module)
+	assert errors.len == 1, messages(errors)
+	assert errors[0].code == 'V003'
+	assert errors[0].message == 'the block has no terminator'
+}
+
+fn test_a_value_defined_twice_is_refused() {
+	mut function := Function{
+		name:      'f'
+		defined:   true
+		signature: Signature{
+			results: [ty_i32]
+		}
+	}
+	function.blocks << Block{
+		label:        'block0'
+		instructions: [
+			Instruction{
+				opcode:   .iconst
+				typ:      ty_i32
+				operands: [Operand{
+					kind: .int_imm
+					imm:  u128(1)
+					idx:  -1
+				}]
+				results:  [0]
+			},
+			Instruction{
+				opcode:   .iconst
+				typ:      ty_i32
+				operands: [Operand{
+					kind: .int_imm
+					imm:  u128(2)
+					idx:  -1
+				}]
+				results:  [0]
+			},
+		]
+		terminator:   Instruction{
+			opcode:   .@return
+			operands: [Operand{
+				kind: .value
+				name: 'v0'
+				idx:  0
+			}]
+		}
+	}
+	function.values << Value{
+		name:  'v0'
+		typ:   ty_i32
+		kind:  .instruction_result
+		block: 0
+		inst:  0
+	}
+	module := Module{
+		target:    target64()
+		functions: [function]
+	}
+	errors := verify_module(module)
+	assert errors.len == 1, messages(errors)
+	assert errors[0].code == 'V005'
+	assert errors[0].message.contains('already defined')
+}
+
+fn test_a_value_that_is_never_defined_is_refused() {
+	mut function := Function{
+		name:    'f'
+		defined: true
+	}
+	function.blocks << Block{
+		label:      'block0'
+		terminator: Instruction{ opcode: .unreachable }
+	}
+	function.values << Value{
+		name:  'v0'
+		typ:   ty_i32
+		kind:  .instruction_result
+		block: 0
+		inst:  0
+	}
+	module := Module{
+		target:    target64()
+		functions: [function]
+	}
+	errors := verify_module(module)
+	assert errors.len == 1, messages(errors)
+	assert errors[0].code == 'V005'
+	assert errors[0].message.contains('is never defined')
+}
+
+fn test_a_defined_function_with_no_blocks_is_refused() {
+	mut function := Function{
+		name:    'f'
+		defined: true
+	}
+	module := Module{
+		target:    target64()
+		functions: [function]
+	}
+	errors := verify_module(module)
+	assert errors.len == 1, messages(errors)
+	assert errors[0].code == 'V002'
+	assert errors[0].message.contains('no blocks')
+}
+
+fn test_an_operand_naming_a_value_that_does_not_exist_is_refused() {
+	mut function := Function{
+		name:      'f'
+		defined:   true
+		signature: Signature{
+			results: [ty_i32]
+		}
+	}
+	function.blocks << Block{
+		label:      'block0'
+		terminator: Instruction{
+			opcode:   .@return
+			operands: [Operand{
+				kind: .value
+				name: 'v7'
+				idx:  7
+			}]
+		}
+	}
+	module := Module{
+		target:    target64()
+		functions: [function]
+	}
+	errors := verify_module(module)
+	assert errors.len == 1, messages(errors)
+	assert errors[0].code == 'V005'
+	assert errors[0].message.contains('value 7 is not in the function value table')
+}
+
+// hand_built_modules holds the shapes the parser refuses to build: a terminator
+// inside the instruction list, and a value defined twice. They are here so the
+// corpus covers V003 and V005 with a module that really produces them.
+fn hand_built_modules() []Module {
+	mut modules := []Module{}
+	mut with_terminator := Function{
+		name:    'terminator'
+		defined: true
+	}
+	with_terminator.blocks << Block{
+		label:        'block0'
+		instructions: [Instruction{ opcode: .br }]
+		terminator:   Instruction{ opcode: .@return }
+	}
+	modules << Module{
+		target:    target64()
+		functions: [with_terminator]
+	}
+	mut doubled := Function{
+		name:      'doubled'
+		defined:   true
+		signature: Signature{
+			results: [ty_i32]
+		}
+	}
+	doubled.blocks << Block{
+		label:        'block0'
+		instructions: [
+			Instruction{
+				opcode:   .iconst
+				typ:      ty_i32
+				operands: [Operand{
+					kind: .int_imm
+					imm:  u128(1)
+					idx:  -1
+				}]
+				results:  [0]
+			},
+			Instruction{
+				opcode:   .iconst
+				typ:      ty_i32
+				operands: [Operand{
+					kind: .int_imm
+					imm:  u128(2)
+					idx:  -1
+				}]
+				results:  [0]
+			},
+		]
+		terminator:   Instruction{
+			opcode:   .@return
+			operands: [Operand{
+				kind: .value
+				name: 'v0'
+				idx:  0
+			}]
+		}
+	}
+	doubled.values << Value{
+		name:  'v0'
+		typ:   ty_i32
+		kind:  .instruction_result
+		block: 0
+		inst:  0
+	}
+	modules << Module{
+		target:    target64()
+		functions: [doubled]
+	}
+	return modules
+}
+
+fn test_the_corpus_covers_every_code() {
+	mut seen := map[string]bool{}
+	for row in refused {
+		module := parse_text(row.text) or { panic('${err.msg()}') }
+		for error in verify_module(module) {
+			seen[error.code] = true
+		}
+	}
+	for module in hand_built_modules() {
+		for error in verify_module(module) {
+			seen[error.code] = true
+		}
+	}
+	codes := ['V001', 'V002', 'V003', 'V004', 'V005', 'V006', 'V007', 'V008', 'V009', 'V010', 'V011',
+		'V012', 'V013', 'V014', 'V015', 'V016', 'V017', 'V018', 'V019', 'V020', 'V021', 'V022']
+	assert codes.len == 22
+	for code in codes {
+		assert code in seen, 'the corpus has no case for ${code}'
+	}
+}

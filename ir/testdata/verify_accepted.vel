@@ -1,0 +1,91 @@
+target 64 little 8
+
+global @wide_data: 16 bytes align 16 init 0x00000000000000000000000000000000
+
+extern fn @identity_wide(%arg0: i64) -> i64
+
+fn @narrow(%arg0: i3, %arg1: i3) -> i3 {
+block0:
+  %v0 = iadd %arg0, %arg1
+  %v1 = band %v0, %arg1
+  %v2 = icmp slt %v1, %arg0
+  %v3 = select %v2, %v1, %arg1
+  return %v3
+}
+
+fn @boolean(%arg0: i1, %arg1: i1) -> i1 {
+block0:
+  %v0 = band %arg0, %arg1
+  %v1 = bxor %v0, %arg1
+  %v2 = bnot %v1
+  %v3 = icmp eq %v2, %arg0
+  return %v3
+}
+
+fn @wide_int(%arg0: i128, %arg1: i128) -> (i128, i1) {
+block0:
+  %v0, %v1 = sadd_overflow %arg0, %arg1
+  %v2 = bswap %v0
+  %v3 = popcnt %v2
+  %v4 = icmp eq %v3, 0
+  return %v2, %v4
+}
+
+fn @halves(%arg0: f16, %arg1: f128) -> f128 {
+block0:
+  %v0 = fpext %arg0 to f128
+  %v1 = fadd %v0, %arg1
+  %v2 = fcmp olt %v1, %arg1
+  %v3 = select %v2, %v1, %arg1
+  return %v3
+}
+
+fn @bytes(%arg0: ptr, %arg1: i24) -> i24 {
+stack slot0: 24 bytes align 4
+block0:
+  %v0 = stack_addr slot0
+  %v1 = load %v0 : i24 align 1
+  %v2 = iadd %v1, %arg1
+  %v3 = bswap %v2
+  store %v0, %v3 align 2
+  %v4 = ptradd %arg0, 24
+  memcpy %v4, %arg0, 8 align dst 8 align src 8
+  return %v3
+}
+
+fn @both(%arg0: ptr, %arg1: i64) -> i64 {
+block0:
+  %v0 = ptrtoint %arg0
+  %v1 = bitcast %v0 to f64
+  %v2 = bitcast %v1 to i64
+  %v3 = inttoptr %v2
+  %v4 = ptradd inbounds %v3, %arg1
+  %v5 = icmp ugt %v4, %arg0
+  %v6 = select %v5, %v4, %arg0
+  %v7 = global_addr @wide_data
+  return %v2
+}
+
+fn @join(%arg0: i32, %arg1: i32) -> i32 {
+block0:
+  %v0 = icmp sgt %arg0, %arg1
+  condbr %v0, block1(%arg0), block2(%arg1)
+block1(%v1: i32):
+  br block3(%v1)
+block2(%v2: i32):
+  br block3(%v2)
+block3(%v3: i32):
+  return %v3
+}
+
+fn @calls(%arg0: i64) -> i64 {
+block0:
+  %v0 = call @identity_wide(%arg0)
+  tailcall @identity_wide(%v0)
+}
+
+fn @indirect(%arg0: ptr) -> i32 {
+block0:
+  %v0 = call_indirect %arg0 : (i32) -> i32 (5)
+  return %v0
+}
