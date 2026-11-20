@@ -59,9 +59,13 @@ stages above instruction selection.
 
 ## Status
 
-The repository is scaffolding. There is no IR, no verifier and no encoder yet, so
-nothing depends on this module. [ROADMAP.md](ROADMAP.md) has the order the work
-takes, and the gate already runs over the tree.
+The IR model and the canonical text parser are in `ir/`. A module can be read
+from text and inspected: types, functions, blocks, instructions, globals and
+stack slots, with every opcode in the reference, and a malformed file is refused
+with the line and the column. There is no printer, no verifier, no builder and no
+encoder, so a parsed module can be read but not checked or written back.
+[ROADMAP.md](ROADMAP.md) has the order the work takes, and the gate runs over the
+tree.
 
 ## What it will do
 
