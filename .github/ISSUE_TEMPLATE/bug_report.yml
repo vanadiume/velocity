@@ -1,0 +1,115 @@
+name: Bug report
+description: Velocity emitted the wrong bytes, accepted a function it should refuse, or crashed.
+title: "[bug]: "
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Reports get fixed when they can be reproduced, so the fields below matter
+        more than length. A wrong instruction is described by its bytes and a
+        disassembly.
+
+        An instruction or target that ROADMAP.md lists as coming is not a bug.
+
+        Security problems go through SECURITY.md and never into this form.
+  - type: input
+    id: build
+    attributes:
+      label: Which build
+      description: The commit you built from. There is no release yet.
+      placeholder: main at 1a2b3c4
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: OS, architecture, and the `v version` that built the library.
+      placeholder: CachyOS x86_64, V 0.5.2 eeee53a
+    validations:
+      required: true
+  - type: dropdown
+    id: target
+    attributes:
+      label: The target
+      description: The machine, system and ABI the library was asked for.
+      options:
+        - x86-64 Linux
+        - aarch64 Linux
+        - A target that is not in the tree yet
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Which stage
+      options:
+        - IR or the builder
+        - Verifier
+        - Legalization or selection
+        - Register allocation
+        - Encoding
+        - Object emission
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: shape
+    attributes:
+      label: What kind of failure is this
+      options:
+        - The bytes mean the wrong instruction
+        - The verifier accepted a function it should refuse
+        - The verifier refused a function it should accept
+        - It crashed, panicked, or hung
+        - It wrote an object it should not have, or wrote nothing
+    validations:
+      required: true
+  - type: textarea
+    id: input
+    attributes:
+      label: The input
+      description: |
+        The IR as text, or the V program that builds it. The smallest input that
+        still shows the problem.
+      render: v
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: The bytes an assembler gives for the same instruction, or what the program should do.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead
+      description: The bytes, a disassembly, the panic output, or the exit status.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: reference
+    attributes:
+      label: The document or assembler that says so
+      description: A section of the architecture manual, or the command you used to compare.
+      placeholder: objdump -d on gcc's encoding of addq
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the open and closed issues for this.
+          required: true
+        - label: I reduced the input to the smallest version that still fails.
+          required: true
+        - label: I checked ROADMAP.md, and this is not an unimplemented instruction or target.
+          required: true
+        - label: This is not a security problem.
+          required: true

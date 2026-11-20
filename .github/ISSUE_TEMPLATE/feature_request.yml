@@ -1,0 +1,71 @@
+name: Feature request
+description: An instruction, a target, or a stage that Velocity does not have yet.
+title: "[feature]: "
+labels: ['enhancement']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ROADMAP.md has the order the work takes. If the milestone is already
+        listed, say which part of it you need earliest rather than restating the
+        milestone.
+
+        Anything that trades away deterministic output, the no-collector rule, or
+        the target model is arguing against the constraints this project exists to
+        satisfy. Make the argument if you have one.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of the library
+      options:
+        - IR or the builder
+        - Verifier
+        - Legalization or selection
+        - Register allocation
+        - Encoding for a target
+        - Object emission
+        - A new target
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: input
+    attributes:
+      label: The IR or instruction that should work
+      description: The smallest function that should compile today and does not.
+      render: v
+    validations:
+      required: true
+  - type: textarea
+    id: behaviour
+    attributes:
+      label: What happens now
+      description: The refusal, or the wrong bytes.
+      render: text
+    validations:
+      required: false
+  - type: textarea
+    id: why
+    attributes:
+      label: Why this matters
+      description: What it blocks, and which front end needs it.
+    validations:
+      required: true
+  - type: input
+    id: reference
+    attributes:
+      label: Where the behaviour is defined
+      description: A section of the architecture manual, an ABI document, or another backend's handling of the same instruction.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked ROADMAP.md, and this is either not on it or is the part I need first.
+          required: true
+        - label: I searched the open and closed issues for this.
+          required: true
+        - label: This keeps the output deterministic and assumes no garbage collector.
+          required: true

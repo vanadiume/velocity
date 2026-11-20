@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question about using Velocity
+    url: https://github.com/vanadiume/velocity/issues/new?labels=question
+    about: What an API means, why the verifier refused this, or how to build against the library. A question is an issue carrying the question label.
+  - name: Security problem
+    url: https://github.com/vanadiume/velocity/security/advisories/new
+    about: Report a vulnerability privately instead of opening an issue.
+  - name: How to file an issue
+    url: https://github.com/vanadiume/velocity/blob/main/ISSUES.md
+    about: What a report needs to carry, and what the current scope leaves out.
