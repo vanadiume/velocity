@@ -29,3 +29,5 @@ owns the change, which is the same vocabulary the commits use.
 * tools: a gate that runs before there is a suite (13ae75d)
 * github: issue forms that ask for the input and the emitted bytes (bf4bff0)
 * docs: the changelog for the scaffold (d2d49da)
+* docs: the changelog line for its own commit (f75342f)
+* docs: a manifesto with a mouth and a grudge (fc41e92)
