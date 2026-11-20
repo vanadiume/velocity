@@ -42,3 +42,6 @@ owns the change, which is the same vocabulary the commits use.
 * github: run the gate on push and pull request (5697fdd)
 * docs: the status and the roadmap say what exists (2715e5b)
 * text: accept a literal at the 128-bit maximum (87f586f)
+* docs: the changelog for the parser (9eab167)
+* ir: i24 is a memory type (67dd76a)
+* docs: the roadmap says what landed and what is left (8a72cf3)
