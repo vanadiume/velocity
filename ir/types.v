@@ -131,7 +131,7 @@ pub fn (t Type) size(pointer_width u16) int {
 }
 
 // is_memory reports whether a value of this type may be loaded, stored, or given
-// a stack slot or a global. ty_i1, i3 and i24 are values but not memory types.
+// a stack slot or a global. ty_i1 and i3 are values but not memory types.
 pub fn (t Type) is_memory() bool {
 	return match t.kind {
 		.int { t.bits % 8 == 0 && t.bits > 0 }

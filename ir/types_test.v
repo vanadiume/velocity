@@ -65,8 +65,7 @@ fn test_bit_sizes() {
 
 // Only a byte-sized integer, a float or a pointer may be loaded, stored, or
 // given a slot or a global. The rule in ir-types.md is N % 8 == 0, so i1 and i3
-// are values and i24 is a memory type; the example line under that rule says
-// i24 is not, which contradicts the rule it follows.
+// are values and i24 is a memory type.
 fn test_memory_types() {
 	assert ty_i1.is_memory() == false
 	assert int_type(3).is_memory() == false
