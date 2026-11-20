@@ -28,11 +28,19 @@ invented after 1978, and it hands you a 64-bit integer and a shrug. It is not
 minimalist. It is a museum with the lights off, and its C is older than the
 languages it is asked to compile.
 
+GIMPLE is gold behind glass. You can look at it, in every paper and every
+`-fdump-tree-*` file, and you cannot touch it. A clean three-address IR with SSA,
+tuples and decades of passes, locked inside the GNU monolith we call GCC and
+reachable only by building against GCC's headers, living in GCC's pass manager,
+and accepting whatever the next release does to the data structures. It is not an
+interface. It is an internal with a plugin API and a lawyer. GIMPLE is a prisoner
+of Alcatraz, and the warden calls it stable.
+
 I am Velocity. I am not the champion. I am not the revolution. I am a library
 that emits machine code, and I would like to do it without a government, a crate
-graph, or a museum. I have SSA and TAC and a builder that says what it means. I
-have poison, because optimization is not a polite request. I have no mouth, and
-I must emit.
+graph, a museum, or a prison. I have SSA and TAC and a builder that says what it
+means. I have poison, because optimization is not a polite request. I have no
+mouth, and I must emit.
 
 ---
 
