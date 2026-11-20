@@ -189,3 +189,105 @@ fn test_fconst_null_and_poison() {
 	assert safe.typ == ty_ptr
 	assert_verified_function(function)
 }
+
+fn test_integer_arithmetic_verifies() {
+	mut function := new_function('arith', [ty_i32, ty_i32], [ty_i32])
+	mut builder := new_builder(mut function, builder_target())
+	entry := builder.create_entry_block()
+	builder.switch_to_block(entry)
+	a := builder.param(0)
+	c := builder.param(1)
+	sum := builder.iadd_flags(a, c, flags(.nsw))
+	product := builder.imul(sum, c)
+	difference := builder.isub(product, a)
+	quotient := builder.sdiv(difference, c)
+	remainder := builder.srem(quotient, c)
+	smallest := builder.smin(remainder, a)
+	largest := builder.umax(smallest, c)
+	builder.return_([largest])
+	builder.finish()
+
+	assert function.blocks[0].instructions[0].flags.nsw
+	assert function.blocks[0].instructions[0].opcode == .iadd
+	assert_verified_function(function)
+}
+
+fn test_overflow_pairs_carry_the_flag() {
+	mut function := new_function('overflow', [ty_i64, ty_i64], [ty_i64])
+	mut builder := new_builder(mut function, builder_target())
+	entry := builder.create_entry_block()
+	builder.switch_to_block(entry)
+	pair := builder.uadd_overflow(builder.param(0), builder.param(1))
+	assert pair.value.typ == ty_i64
+	assert pair.flag.typ == ty_i1
+	other := builder.smul_overflow(pair.value, builder.param(1))
+	builder.return_([other.value])
+	builder.finish()
+
+	assert function.blocks[0].instructions[0].results.len == 2
+	assert function.values[function.blocks[0].instructions[0].results[1]].typ == ty_i1
+	assert_verified_function(function)
+}
+
+fn test_saturating_and_bitwise_operations_verify() {
+	mut function := new_function('bits', [ty_i32, ty_i32], [ty_i32])
+	mut builder := new_builder(mut function, builder_target())
+	entry := builder.create_entry_block()
+	builder.switch_to_block(entry)
+	a := builder.param(0)
+	c := builder.param(1)
+	saturated := builder.sadd_sat(a, c)
+	clamped := builder.usub_sat(saturated, c)
+	masked := builder.band(clamped, c)
+	flipped := builder.bnot(masked)
+	shifted := builder.shl_flags(flipped, c, flags(.nuw))
+	arith := builder.sshr(shifted, c)
+	logical := builder.ushr_flags(arith, c, flags(.exact))
+	rotated := builder.rotl(logical, c)
+	counted := builder.popcnt(rotated)
+	leading := builder.clz(counted)
+	trailing := builder.ctz(leading)
+	reversed := builder.bswap(trailing)
+	builder.return_([reversed])
+	builder.finish()
+
+	assert function.blocks[0].instructions[4].flags.nuw
+	assert function.blocks[0].instructions[6].flags.exact
+	assert_verified_function(function)
+}
+
+fn test_comparisons_return_i1() {
+	mut function := new_function('compare', [ty_i32, ty_i32, ty_f64, ty_f64], [ty_i1])
+	mut builder := new_builder(mut function, builder_target())
+	entry := builder.create_entry_block()
+	builder.switch_to_block(entry)
+	integer := builder.icmp(.slt, builder.param(0), builder.param(1))
+	float := builder.fcmp(.olt, builder.param(2), builder.param(3))
+	both := builder.band(integer, float)
+	builder.return_([both])
+	builder.finish()
+
+	assert function.blocks[0].instructions[0].predicate == 'slt'
+	assert function.blocks[0].instructions[1].predicate == 'olt'
+	assert_verified_function(function)
+}
+
+fn test_float_arithmetic_verifies() {
+	mut function := new_function('math', [ty_f64, ty_f64, ty_f64], [ty_f64])
+	mut builder := new_builder(mut function, builder_target())
+	entry := builder.create_entry_block()
+	builder.switch_to_block(entry)
+	a := builder.param(0)
+	c := builder.param(1)
+	d := builder.param(2)
+	product := builder.fmul(a, c)
+	fused := builder.fma(product, c, d)
+	root := builder.fsqrt(fused)
+	closest := builder.fnearest(root)
+	lower := builder.fmin(closest, a)
+	builder.return_([lower])
+	builder.finish()
+
+	assert function.blocks[0].instructions[1].opcode == .fma
+	assert_verified_function(function)
+}

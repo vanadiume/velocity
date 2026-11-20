@@ -601,3 +601,476 @@ fn (b &Builder) natural_align(typ Type, site string) u16 {
 	}
 	return u16(typ.size(0))
 }
+
+// Flags.
+
+// Flag is one of the promises an instruction can carry. flags() turns a list of
+// them into the set an instruction holds.
+pub enum Flag {
+	nsw
+	nuw
+	exact
+	inbounds
+	volatile
+}
+
+pub fn flags(list ...Flag) FlagSet {
+	mut set := FlagSet{}
+	for flag in list {
+		match flag {
+			.nsw { set.nsw = true }
+			.nuw { set.nuw = true }
+			.exact { set.exact = true }
+			.inbounds { set.inbounds = true }
+			.volatile { set.volatile = true }
+		}
+	}
+	return set
+}
+
+fn (mut b Builder) check_flags(op Opcode, set FlagSet, site string) {
+	if set.nsw && !accepts_flag(op, 'nsw') {
+		panic("${site}: '${op.name()}' does not accept the nsw flag")
+	}
+	if set.nuw && !accepts_flag(op, 'nuw') {
+		panic("${site}: '${op.name()}' does not accept the nuw flag")
+	}
+	if set.exact && !accepts_flag(op, 'exact') {
+		panic("${site}: '${op.name()}' does not accept the exact flag")
+	}
+	if set.inbounds && !accepts_flag(op, 'inbounds') {
+		panic("${site}: '${op.name()}' does not accept the inbounds flag")
+	}
+	if set.volatile && !accepts_flag(op, 'volatile') {
+		panic("${site}: '${op.name()}' does not accept the volatile flag")
+	}
+}
+
+// Integer arithmetic.
+
+fn (mut b Builder) int_binop(site string, op Opcode, a ValueRef, c ValueRef, set FlagSet) ValueRef {
+	b.check_flags(op, set, site)
+	typ := b.value_type(a)
+	if !typ.is_int() {
+		panic('${site}: value ${a.idx} has type ${typ.str()}, expected an integer')
+	}
+	b.expect(c, typ, site)
+	mut inst := Instruction{
+		opcode: op
+		flags:  set
+	}
+	inst.operands << b.operand(a)
+	inst.operands << b.operand(c)
+	return b.push_inst(site, inst, [typ])[0]
+}
+
+fn (mut b Builder) int_unop(site string, op Opcode, value ValueRef, set FlagSet) ValueRef {
+	b.check_flags(op, set, site)
+	typ := b.value_type(value)
+	if !typ.is_int() {
+		panic('${site}: value ${value.idx} has type ${typ.str()}, expected an integer')
+	}
+	mut inst := Instruction{
+		opcode: op
+		flags:  set
+	}
+	inst.operands << b.operand(value)
+	return b.push_inst(site, inst, [typ])[0]
+}
+
+fn (mut b Builder) int_overflow(site string, op Opcode, a ValueRef, c ValueRef) OverflowPair {
+	typ := b.value_type(a)
+	if !typ.is_int() {
+		panic('${site}: value ${a.idx} has type ${typ.str()}, expected an integer')
+	}
+	b.expect(c, typ, site)
+	mut inst := Instruction{
+		opcode: op
+	}
+	inst.operands << b.operand(a)
+	inst.operands << b.operand(c)
+	results := b.push_inst(site, inst, [typ, ty_i1])
+	return OverflowPair{
+		value: results[0]
+		flag:  results[1]
+	}
+}
+
+// OverflowPair is the wrapped result and the overflow flag an overflow opcode
+// produces.
+pub struct OverflowPair {
+pub:
+	value ValueRef
+	flag  ValueRef
+}
+
+pub fn (mut b Builder) iadd(a ValueRef, c ValueRef) ValueRef {
+	return b.int_binop('iadd', .iadd, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) iadd_flags(a ValueRef, c ValueRef, set FlagSet) ValueRef {
+	return b.int_binop('iadd', .iadd, a, c, set)
+}
+
+pub fn (mut b Builder) isub(a ValueRef, c ValueRef) ValueRef {
+	return b.int_binop('isub', .isub, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) isub_flags(a ValueRef, c ValueRef, set FlagSet) ValueRef {
+	return b.int_binop('isub', .isub, a, c, set)
+}
+
+pub fn (mut b Builder) imul(a ValueRef, c ValueRef) ValueRef {
+	return b.int_binop('imul', .imul, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) imul_flags(a ValueRef, c ValueRef, set FlagSet) ValueRef {
+	return b.int_binop('imul', .imul, a, c, set)
+}
+
+pub fn (mut b Builder) sdiv(a ValueRef, c ValueRef) ValueRef {
+	return b.int_binop('sdiv', .sdiv, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) sdiv_flags(a ValueRef, c ValueRef, set FlagSet) ValueRef {
+	return b.int_binop('sdiv', .sdiv, a, c, set)
+}
+
+pub fn (mut b Builder) udiv(a ValueRef, c ValueRef) ValueRef {
+	return b.int_binop('udiv', .udiv, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) udiv_flags(a ValueRef, c ValueRef, set FlagSet) ValueRef {
+	return b.int_binop('udiv', .udiv, a, c, set)
+}
+
+pub fn (mut b Builder) srem(a ValueRef, c ValueRef) ValueRef {
+	return b.int_binop('srem', .srem, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) srem_flags(a ValueRef, c ValueRef, set FlagSet) ValueRef {
+	return b.int_binop('srem', .srem, a, c, set)
+}
+
+pub fn (mut b Builder) urem(a ValueRef, c ValueRef) ValueRef {
+	return b.int_binop('urem', .urem, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) urem_flags(a ValueRef, c ValueRef, set FlagSet) ValueRef {
+	return b.int_binop('urem', .urem, a, c, set)
+}
+
+pub fn (mut b Builder) ineg(value ValueRef) ValueRef {
+	return b.int_unop('ineg', .ineg, value, FlagSet{})
+}
+
+pub fn (mut b Builder) ineg_flags(value ValueRef, set FlagSet) ValueRef {
+	return b.int_unop('ineg', .ineg, value, set)
+}
+
+pub fn (mut b Builder) iabs(value ValueRef) ValueRef {
+	return b.int_unop('iabs', .iabs, value, FlagSet{})
+}
+
+pub fn (mut b Builder) smin(a ValueRef, c ValueRef) ValueRef {
+	return b.int_binop('smin', .smin, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) smax(a ValueRef, c ValueRef) ValueRef {
+	return b.int_binop('smax', .smax, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) umin(a ValueRef, c ValueRef) ValueRef {
+	return b.int_binop('umin', .umin, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) umax(a ValueRef, c ValueRef) ValueRef {
+	return b.int_binop('umax', .umax, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) sadd_overflow(a ValueRef, c ValueRef) OverflowPair {
+	return b.int_overflow('sadd_overflow', .sadd_overflow, a, c)
+}
+
+pub fn (mut b Builder) uadd_overflow(a ValueRef, c ValueRef) OverflowPair {
+	return b.int_overflow('uadd_overflow', .uadd_overflow, a, c)
+}
+
+pub fn (mut b Builder) ssub_overflow(a ValueRef, c ValueRef) OverflowPair {
+	return b.int_overflow('ssub_overflow', .ssub_overflow, a, c)
+}
+
+pub fn (mut b Builder) usub_overflow(a ValueRef, c ValueRef) OverflowPair {
+	return b.int_overflow('usub_overflow', .usub_overflow, a, c)
+}
+
+pub fn (mut b Builder) smul_overflow(a ValueRef, c ValueRef) OverflowPair {
+	return b.int_overflow('smul_overflow', .smul_overflow, a, c)
+}
+
+pub fn (mut b Builder) umul_overflow(a ValueRef, c ValueRef) OverflowPair {
+	return b.int_overflow('umul_overflow', .umul_overflow, a, c)
+}
+
+pub fn (mut b Builder) sadd_sat(a ValueRef, c ValueRef) ValueRef {
+	return b.int_binop('sadd_sat', .sadd_sat, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) uadd_sat(a ValueRef, c ValueRef) ValueRef {
+	return b.int_binop('uadd_sat', .uadd_sat, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) ssub_sat(a ValueRef, c ValueRef) ValueRef {
+	return b.int_binop('ssub_sat', .ssub_sat, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) usub_sat(a ValueRef, c ValueRef) ValueRef {
+	return b.int_binop('usub_sat', .usub_sat, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) smul_sat(a ValueRef, c ValueRef) ValueRef {
+	return b.int_binop('smul_sat', .smul_sat, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) umul_sat(a ValueRef, c ValueRef) ValueRef {
+	return b.int_binop('umul_sat', .umul_sat, a, c, FlagSet{})
+}
+
+// Bitwise and shifts.
+
+pub fn (mut b Builder) band(a ValueRef, c ValueRef) ValueRef {
+	return b.int_binop('band', .band, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) bor(a ValueRef, c ValueRef) ValueRef {
+	return b.int_binop('bor', .bor, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) bxor(a ValueRef, c ValueRef) ValueRef {
+	return b.int_binop('bxor', .bxor, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) bnot(value ValueRef) ValueRef {
+	return b.int_unop('bnot', .bnot, value, FlagSet{})
+}
+
+pub fn (mut b Builder) shl(a ValueRef, c ValueRef) ValueRef {
+	return b.int_binop('shl', .shl, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) shl_flags(a ValueRef, c ValueRef, set FlagSet) ValueRef {
+	return b.int_binop('shl', .shl, a, c, set)
+}
+
+pub fn (mut b Builder) sshr(a ValueRef, c ValueRef) ValueRef {
+	return b.int_binop('sshr', .sshr, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) sshr_flags(a ValueRef, c ValueRef, set FlagSet) ValueRef {
+	return b.int_binop('sshr', .sshr, a, c, set)
+}
+
+pub fn (mut b Builder) ushr(a ValueRef, c ValueRef) ValueRef {
+	return b.int_binop('ushr', .ushr, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) ushr_flags(a ValueRef, c ValueRef, set FlagSet) ValueRef {
+	return b.int_binop('ushr', .ushr, a, c, set)
+}
+
+pub fn (mut b Builder) rotl(a ValueRef, c ValueRef) ValueRef {
+	return b.int_binop('rotl', .rotl, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) rotr(a ValueRef, c ValueRef) ValueRef {
+	return b.int_binop('rotr', .rotr, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) clz(value ValueRef) ValueRef {
+	return b.int_unop('clz', .clz, value, FlagSet{})
+}
+
+pub fn (mut b Builder) ctz(value ValueRef) ValueRef {
+	return b.int_unop('ctz', .ctz, value, FlagSet{})
+}
+
+pub fn (mut b Builder) popcnt(value ValueRef) ValueRef {
+	return b.int_unop('popcnt', .popcnt, value, FlagSet{})
+}
+
+pub fn (mut b Builder) bswap(value ValueRef) ValueRef {
+	typ := b.value_type(value)
+	if typ.is_int() && typ.bits % 8 != 0 {
+		panic("bswap: 'bswap' operates on ${typ.str()}, expected a width that is a multiple of 8")
+	}
+	return b.int_unop('bswap', .bswap, value, FlagSet{})
+}
+
+// Comparisons.
+
+pub enum IntPredicate {
+	eq
+	ne
+	slt
+	sle
+	sgt
+	sge
+	ult
+	ule
+	ugt
+	uge
+}
+
+pub enum FloatPredicate {
+	oeq
+	one
+	olt
+	ole
+	ogt
+	oge
+	ueq
+	une
+	ult
+	ule
+	ugt
+	uge
+	ord
+	uno
+}
+
+pub fn (mut b Builder) icmp(predicate IntPredicate, a ValueRef, c ValueRef) ValueRef {
+	typ := b.value_type(a)
+	if !typ.is_int() && !typ.is_ptr() {
+		panic('icmp: value ${a.idx} has type ${typ.str()}, expected an integer or a pointer')
+	}
+	b.expect(c, typ, 'icmp')
+	if typ.is_ptr() && predicate !in [.eq, .ne, .ult, .ule, .ugt, .uge] {
+		panic("icmp: 'icmp ${predicate.str()}' is not defined on pointers; only eq, ne, ult, ule, ugt and uge are")
+	}
+	mut inst := Instruction{
+		opcode:    .icmp
+		predicate: predicate.str()
+	}
+	inst.operands << b.operand(a)
+	inst.operands << b.operand(c)
+	return b.push_inst('icmp', inst, [ty_i1])[0]
+}
+
+pub fn (mut b Builder) fcmp(predicate FloatPredicate, a ValueRef, c ValueRef) ValueRef {
+	typ := b.value_type(a)
+	if !typ.is_float() {
+		panic('fcmp: value ${a.idx} has type ${typ.str()}, expected a float')
+	}
+	b.expect(c, typ, 'fcmp')
+	mut inst := Instruction{
+		opcode:    .fcmp
+		predicate: predicate.str()
+	}
+	inst.operands << b.operand(a)
+	inst.operands << b.operand(c)
+	return b.push_inst('fcmp', inst, [ty_i1])[0]
+}
+
+// Floating point.
+
+fn (mut b Builder) float_binop(site string, op Opcode, a ValueRef, c ValueRef) ValueRef {
+	typ := b.value_type(a)
+	if !typ.is_float() {
+		panic('${site}: value ${a.idx} has type ${typ.str()}, expected a float')
+	}
+	b.expect(c, typ, site)
+	mut inst := Instruction{
+		opcode: op
+	}
+	inst.operands << b.operand(a)
+	inst.operands << b.operand(c)
+	return b.push_inst(site, inst, [typ])[0]
+}
+
+fn (mut b Builder) float_unop(site string, op Opcode, value ValueRef) ValueRef {
+	typ := b.value_type(value)
+	if !typ.is_float() {
+		panic('${site}: value ${value.idx} has type ${typ.str()}, expected a float')
+	}
+	mut inst := Instruction{
+		opcode: op
+	}
+	inst.operands << b.operand(value)
+	return b.push_inst(site, inst, [typ])[0]
+}
+
+pub fn (mut b Builder) fadd(a ValueRef, c ValueRef) ValueRef {
+	return b.float_binop('fadd', .fadd, a, c)
+}
+
+pub fn (mut b Builder) fsub(a ValueRef, c ValueRef) ValueRef {
+	return b.float_binop('fsub', .fsub, a, c)
+}
+
+pub fn (mut b Builder) fmul(a ValueRef, c ValueRef) ValueRef {
+	return b.float_binop('fmul', .fmul, a, c)
+}
+
+pub fn (mut b Builder) fdiv(a ValueRef, c ValueRef) ValueRef {
+	return b.float_binop('fdiv', .fdiv, a, c)
+}
+
+pub fn (mut b Builder) frem(a ValueRef, c ValueRef) ValueRef {
+	return b.float_binop('frem', .frem, a, c)
+}
+
+pub fn (mut b Builder) fcopysign(a ValueRef, c ValueRef) ValueRef {
+	return b.float_binop('fcopysign', .fcopysign, a, c)
+}
+
+pub fn (mut b Builder) fmin(a ValueRef, c ValueRef) ValueRef {
+	return b.float_binop('fmin', .fmin, a, c)
+}
+
+pub fn (mut b Builder) fmax(a ValueRef, c ValueRef) ValueRef {
+	return b.float_binop('fmax', .fmax, a, c)
+}
+
+pub fn (mut b Builder) fma(a ValueRef, c ValueRef, d ValueRef) ValueRef {
+	typ := b.value_type(a)
+	if !typ.is_float() {
+		panic('fma: value ${a.idx} has type ${typ.str()}, expected a float')
+	}
+	b.expect(c, typ, 'fma')
+	b.expect(d, typ, 'fma')
+	mut inst := Instruction{
+		opcode: .fma
+	}
+	inst.operands << b.operand(a)
+	inst.operands << b.operand(c)
+	inst.operands << b.operand(d)
+	return b.push_inst('fma', inst, [typ])[0]
+}
+
+pub fn (mut b Builder) fneg(value ValueRef) ValueRef {
+	return b.float_unop('fneg', .fneg, value)
+}
+
+pub fn (mut b Builder) fabs(value ValueRef) ValueRef {
+	return b.float_unop('fabs', .fabs, value)
+}
+
+pub fn (mut b Builder) fsqrt(value ValueRef) ValueRef {
+	return b.float_unop('fsqrt', .fsqrt, value)
+}
+
+pub fn (mut b Builder) fceil(value ValueRef) ValueRef {
+	return b.float_unop('fceil', .fceil, value)
+}
+
+pub fn (mut b Builder) ffloor(value ValueRef) ValueRef {
+	return b.float_unop('ffloor', .ffloor, value)
+}
+
+pub fn (mut b Builder) ftrunc(value ValueRef) ValueRef {
+	return b.float_unop('ftrunc', .ftrunc, value)
+}
+
+pub fn (mut b Builder) fnearest(value ValueRef) ValueRef {
+	return b.float_unop('fnearest', .fnearest, value)
+}
