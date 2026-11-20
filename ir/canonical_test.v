@@ -50,8 +50,8 @@ fn test_globals_keep_their_order_and_bytes() {
 
 fn test_functions_keep_their_order() {
 	m := load_canonical()
-	names := ['puts', 'identity', 'max', 'classify', 'dispatch', 'copy', 'tail', 'forward_ref',
-		'late_function']
+	names := ['puts', 'identity', 'minmax', 'max', 'classify', 'dispatch', 'copy', 'tail',
+		'forward_ref', 'late_function']
 	assert m.functions.len == names.len
 	for i in 0 .. names.len {
 		assert m.functions[i].name == names[i]
@@ -206,7 +206,7 @@ fn test_tail_calls() {
 	classify := m.functions[function_index(m, 'classify')]
 	tail := classify.blocks[6].terminator
 	assert tail.opcode == .tailcall
-	assert tail.operands[0].name == 'max'
+	assert tail.operands[0].name == 'minmax'
 }
 
 fn test_pointer_conversions() {

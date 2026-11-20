@@ -121,9 +121,11 @@ block3(%v1: i32):
   %v2 = call @callee(%v1)
   %v3 = call_indirect %arg1 : (i32) -> i32 (%v2)
   %v4 = call_indirect %arg1 : () -> i32 ()
-  unreachable
+  condbr %v0, block4(), block5()
 block4:
   trap 3
+block5:
+  unreachable
 }
 
 fn @tails(%arg0: i32, %arg1: ptr) -> i32 {
