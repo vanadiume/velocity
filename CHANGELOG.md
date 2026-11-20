@@ -60,3 +60,4 @@ owns the change, which is the same vocabulary the commits use.
 * ir: every switch case edge gets its argument (5442a20)
 * ir: the if_ and loop_ helpers (627fed6)
 * ir: a test that builds every opcode through the builder (96cbd2e)
+* docs: the status, the roadmap and the changelog say the builder landed (6597871)
