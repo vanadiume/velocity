@@ -32,3 +32,13 @@ owns the change, which is the same vocabulary the commits use.
 * docs: the changelog line for its own commit (f75342f)
 * docs: a manifesto with a mouth and a grudge (fc41e92)
 * docs: gimple is gold behind glass (864e0a9)
+
+## 2026-11-20
+
+* ir: the type model and the opcode table (c7c1467)
+* ir: the module, function and instruction model (67effde)
+* text: read the canonical text form (21e071d)
+* text: the parser's tests and fixtures (ff710db)
+* github: run the gate on push and pull request (5697fdd)
+* docs: the status and the roadmap say what exists (2715e5b)
+* text: accept a literal at the 128-bit maximum (87f586f)
