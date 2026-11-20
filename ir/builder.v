@@ -1804,6 +1804,16 @@ pub fn (mut b Builder) seal_block(block int) {
 	b.pending_vars[block] = map[int]int{}
 }
 
+// seal_all seals every block that is still open, newest first, so a use that
+// asked for a value from a predecessor is resolved after that predecessor's own
+// jump exists. A frontend with no loop header to keep open calls this before
+// finish.
+pub fn (mut b Builder) seal_all() {
+	for i := b.function.blocks.len - 1; i >= 0; i-- {
+		b.seal_block(i)
+	}
+}
+
 // append_jump_arg appends one argument to a predecessor's jump and records the
 // site when the value is still pending.
 fn (mut b Builder) append_jump_arg(edge Edge, value ValueRef) {
@@ -1879,4 +1889,65 @@ fn (mut b Builder) patch_site(site UseSite, idx int) {
 			b.function.blocks[site.block].terminator = terminator
 		}
 	}
+}
+
+// Structured helpers.
+
+// Branch is the block structure if_ creates. The two arms each have one
+// predecessor and are sealed already; the join is sealed by the frontend once
+// both arms have jumped to it.
+pub struct Branch {
+pub:
+	then_block int
+	else_block int
+	join       int
+}
+
+pub fn (mut b Builder) if_(condition ValueRef) Branch {
+	b.expect(condition, ty_i1, 'if_ condition')
+	then_block := b.create_block()
+	else_block := b.create_block()
+	join := b.create_block()
+	b.condbr(condition, then_block, [], else_block, [])
+	b.seal_block(then_block)
+	b.seal_block(else_block)
+	return Branch{
+		then_block: then_block
+		else_block: else_block
+		join:       join
+	}
+}
+
+// Loop is the block structure loop_ creates: a header for the back edge, a
+// body the cursor moves to, and the block after it. The header is sealed after
+// the back edge exists, and the block after is sealed once the exits do.
+pub struct Loop {
+pub:
+	head  int
+	body  int
+	after int
+}
+
+pub fn (mut b Builder) loop_() Loop {
+	head := b.create_block()
+	body := b.create_block()
+	after := b.create_block()
+	b.br(head, [])
+	b.switch_to_block(head)
+	b.br(body, [])
+	b.switch_to_block(body)
+	b.seal_block(body)
+	return Loop{
+		head:  head
+		body:  body
+		after: after
+	}
+}
+
+pub fn (mut b Builder) loop_break(loop Loop) {
+	b.br(loop.after, [])
+}
+
+pub fn (mut b Builder) loop_continue(loop Loop) {
+	b.br(loop.head, [])
 }

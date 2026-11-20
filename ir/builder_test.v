@@ -708,31 +708,91 @@ fn test_a_switch_target_gets_an_argument_per_edge() {
 	assert_verified_function(function)
 }
 
-fn test_a_switch_with_many_cases_passes_arguments_to_each_edge() {
-	mut function := new_function('many', [ty_i32], [ty_i32])
+fn test_if_creates_the_arms_and_the_join() {
+	mut function := new_function('branchy', [ty_i1], [ty_i32])
 	mut builder := new_builder(mut function, builder_target())
 	entry := builder.create_entry_block()
 	builder.switch_to_block(entry)
-	selector := builder.param(0)
+	condition := builder.param(0)
 	x := builder.declare_var(ty_i32)
+	builder.def_var(x, builder.iconst(ty_i32, 0))
+	branch := builder.if_(condition)
+	builder.switch_to_block(branch.then_block)
 	builder.def_var(x, builder.iconst(ty_i32, 1))
-	join := builder.create_block()
-	mut cases := []Case{cap: 14}
-	for value in 1 .. 15 {
-		cases << Case{
-			value: u128(value)
-			block: join
-		}
-	}
-	builder.switch_(selector, join, [], cases)
-	builder.switch_to_block(join)
-	builder.seal_block(join)
-	builder.return_([builder.use_var(x)])
+	builder.br(branch.join, [])
+	builder.switch_to_block(branch.else_block)
+	builder.def_var(x, builder.iconst(ty_i32, 2))
+	builder.br(branch.join, [])
+	builder.switch_to_block(branch.join)
+	builder.seal_block(branch.join)
+	result := builder.use_var(x)
+	builder.return_([result])
 	builder.finish()
 
-	assert function.blocks[entry].terminator.cases.len == 14
-	assert function.blocks[join].params.len == 1
+	assert branch.then_block == 1
+	assert branch.else_block == 2
+	assert branch.join == 3
+	assert function.blocks[branch.join].params.len == 1
+	assert function.blocks[branch.then_block].terminator.target.block == branch.join
+	assert function.blocks[branch.else_block].terminator.target.block == branch.join
+	assert_verified_function(function)
+}
+
+fn test_loop_builds_a_body_and_an_exit() {
+	mut function := new_function('count', [ty_i32], [ty_i32])
+	mut builder := new_builder(mut function, builder_target())
+	entry := builder.create_entry_block()
+	builder.switch_to_block(entry)
+	limit := builder.param(0)
+	i := builder.declare_var(ty_i32)
+	builder.def_var(i, builder.iconst(ty_i32, 0))
+	loop := builder.loop_()
+	next := builder.iadd(builder.use_var(i), builder.iconst(ty_i32, 1))
+	builder.def_var(i, next)
+	more := builder.icmp(.slt, builder.use_var(i), limit)
+	builder.condbr(more, loop.head, [], loop.after, [])
+	builder.seal_block(loop.head)
+	builder.seal_block(loop.after)
+	builder.switch_to_block(loop.after)
+	builder.return_([builder.use_var(i)])
+	builder.finish()
+
+	assert loop.head == 1
+	assert loop.body == 2
+	assert loop.after == 3
+	// i is live around the back edge, so the header takes it as a parameter
+	assert function.blocks[loop.head].params.len == 1
 	assert function.blocks[entry].terminator.target.args.len == 1
-	assert function.blocks[entry].terminator.cases[13].target.args.len == 1
+	assert function.blocks[loop.body].terminator.target.args.len == 1
+	assert function.blocks[loop.after].params.len == 0
+	assert_verified_function(function)
+}
+
+fn test_a_loop_that_breaks_out() {
+	mut function := new_function('find', [ty_i32], [ty_i32])
+	mut builder := new_builder(mut function, builder_target())
+	entry := builder.create_entry_block()
+	builder.switch_to_block(entry)
+	limit := builder.param(0)
+	i := builder.declare_var(ty_i32)
+	builder.def_var(i, builder.iconst(ty_i32, 0))
+	loop := builder.loop_()
+	step := builder.iadd(builder.use_var(i), builder.iconst(ty_i32, 1))
+	builder.def_var(i, step)
+	done := builder.icmp(.sge, builder.use_var(i), limit)
+	break_block := builder.create_block()
+	continue_block := builder.create_block()
+	builder.condbr(done, break_block, [], continue_block, [])
+	builder.switch_to_block(break_block)
+	builder.loop_break(loop)
+	builder.switch_to_block(continue_block)
+	builder.loop_continue(loop)
+	builder.switch_to_block(loop.after)
+	builder.return_([builder.use_var(i)])
+	builder.seal_all()
+	builder.finish()
+
+	assert function.blocks[break_block].terminator.target.block == loop.after
+	assert function.blocks[continue_block].terminator.target.block == loop.head
 	assert_verified_function(function)
 }
