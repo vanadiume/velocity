@@ -268,14 +268,17 @@ fn (mut t Tokenizer) scan_number() !Token {
 		}
 	} else {
 		for t.pos < t.text.len && is_digit(t.text[t.pos]) {
-			if value > (max_u128 - 9) / 10 {
+			digit := u128(t.text[t.pos] - `0`)
+			// The last digit is the only one that may land on the maximum: a
+			// plain `value > max / 10` refuses 2^128 - 1 itself.
+			if value > max_u128 / 10 || (value == max_u128 / 10 && digit > max_u128 % 10) {
 				return ParseError{
 					line:    line
 					col:     col
 					message: 'integer literal does not fit in 128 bits'
 				}
 			}
-			value = value * 10 + u128(t.text[t.pos] - `0`)
+			value = value * 10 + digit
 			t.pos++
 			t.col++
 			digits++

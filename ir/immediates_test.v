@@ -42,6 +42,29 @@ fn test_i128_immediate() {
 	assert inst2.operands[0].imm == u128(170141183460469231731687303715884105727)
 }
 
+// The largest value a u128 holds is the one a 128-bit literal may name, and one
+// more than it is a bad literal rather than a wrapped one.
+fn test_the_widest_literal() {
+	inst := first_instruction(parse_body('%v0 = iconst i128 340282366920938463463374607431768211455'))
+	assert inst.operands[0].imm == u128(340282366920938463463374607431768211455)
+	text := 'target 64 little 8
+fn @f() {
+block0:
+  %v0 = iconst i128 340282366920938463463374607431768211456
+  return
+}
+'
+	parse_text(text) or {
+		assert err is ParseError
+		e := err as ParseError
+		assert e.line == 4
+		assert e.col == 21
+		assert e.message.contains('does not fit in 128 bits')
+		return
+	}
+	assert false, 'a literal wider than 128 bits parsed'
+}
+
 fn test_a_narrow_width_keeps_its_low_bits() {
 	inst := first_instruction(parse_body('%v0 = iconst i3 -1'))
 	assert inst.typ == int_type(3)
