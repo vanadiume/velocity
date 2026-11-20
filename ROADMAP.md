@@ -5,15 +5,15 @@ when its paragraphs are true, not when its list is checked off.
 
 ## 0.0.x: the repository and the IR model
 
-Done: the documents, the manifest, the gate, and the IR model in `ir/` with the
+Landed: the documents, the manifest, the gate, and the IR model in `ir/` with the
 parser for the canonical text form. Types of every width, functions, blocks with
 parameters, instructions with their flags and immediates, globals and stack
 slots, and a fixture that covers every opcode.
 
-Not done in this release: the printer, so a module cannot be written back and
-there is no round trip yet; the verifier, so a parsed function is not checked;
-the builder, so a front end cannot create one; and everything below the IR. A
-module can be read and inspected, not checked or emitted. No target yet.
+Left in this release: the printer, so a module cannot be written back and there
+is no round trip yet; the verifier, so a parsed function is not checked; the
+builder, so a front end cannot create one; and everything below the IR. A module
+can be read and inspected, not checked or emitted. No target yet.
 
 ## 0.1.0: a function that verifies
 
