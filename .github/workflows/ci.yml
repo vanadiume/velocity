@@ -1,0 +1,115 @@
+name: ci
+
+# The gate this repository runs locally, run again where it cannot be skipped:
+# formatting, both suites, and the links between the documents. The gate script
+# is the list; this file only has to get a compiler onto the runner and start
+# it, so a step added to tools/gate.vsh runs here without this file changing.
+#
+# The compiler is pinned by commit, the way the sibling libraries in this family
+# pin it, because a red run has to be about this tree and not about a compiler
+# that moved underneath it. `make` in the V checkout does not use the tree's own
+# compiler: it builds v1 from vlang/vc, a rolling snapshot of master's generated
+# C, and that snapshot advances on its own. So the snapshot is pinned beside V,
+# cloned through a local mirror whose master is the pinned commit, and make's own
+# `pull` cannot carry it past the pin. The pair below is the pair vcc builds and
+# tests with; it moves as a pair, not one half of it.
+#
+# The workflow is validated here as YAML and its shell as bash. Neither proves a
+# runner will carry it: the first push is where the cache key, the toolchain and
+# the link below are exercised for the first time.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A second push to the same branch or pull request cancels the run in flight:
+# the run somebody is waiting on is the newest one.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The commit this tree is built and tested with, and the vlang/vc snapshot the
+  # pinned source is bootstrapped from. Both are named in the sibling libraries.
+  V_COMMIT: c6bb06f5c04d78f9f6d22a57c257d27e835ba40a
+  VC_COMMIT: bcfdc7f33e7b7908ee40f76d059c0e2894fb4a3b
+  V_DIR: /opt/v
+
+jobs:
+  gate:
+    name: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      # Building the pin is about six minutes of a two-core runner, so it is
+      # carried in the cache under the pair of commits: a bump misses the key,
+      # and the binary is checked against the pin below before anything compiles.
+      - name: restore the pinned V
+        id: toolchain
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.V_DIR }}
+          key: v-${{ env.V_COMMIT }}-${{ env.VC_COMMIT }}
+
+      - name: build V at the pinned commit
+        id: build
+        if: steps.toolchain.outputs.cache-hit != 'true'
+        run: |
+          git clone --quiet https://github.com/vlang/v "$V_DIR"
+          git -C "$V_DIR" checkout --quiet "$V_COMMIT"
+          # The bootstrap snapshot, cloned through a mirror whose master is the
+          # pinned commit. make's own update step pulls from that mirror, so the
+          # snapshot stays where it is; cloning vlang/vc directly would leave the
+          # pull pointing at the rolling HEAD, which is what refuses a pinned
+          # source and takes the job down without this tree changing at all.
+          git clone --quiet https://github.com/vlang/vc "$(dirname "$V_DIR")/vc-pinned"
+          git -C "$(dirname "$V_DIR")/vc-pinned" checkout --quiet -B master "$VC_COMMIT"
+          git clone --quiet "$(dirname "$V_DIR")/vc-pinned" "$V_DIR/vc"
+          make -C "$V_DIR"
+
+      # Saved only after a build of the pin in this run, so a half-built
+      # toolchain cannot answer for the pin afterwards.
+      - name: save the pinned V
+        if: always() && steps.build.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.V_DIR }}
+          key: v-${{ env.V_COMMIT }}-${{ env.VC_COMMIT }}
+
+      # The version string carries the commit `v` was built from, so a restored
+      # toolchain is held to the pin rather than assumed to be it. A `case` and
+      # not `| grep -q`, because grep leaves as soon as it matches and the
+      # runner's bash has pipefail on.
+      - name: put V on PATH
+        run: |
+          echo "$V_DIR" >> "$GITHUB_PATH"
+          version="$("$V_DIR/v" version)"
+          echo "$version"
+          case "$version" in
+            *"${V_COMMIT:0:7}"*) ;;
+            *)
+              echo "the V at $V_DIR is not the pinned commit ${V_COMMIT:0:7}"
+              exit 1
+              ;;
+          esac
+
+      # The library is published as vanadiume.velocity and imported by that path,
+      # so the checkout has to be reachable where V resolves a module by name.
+      # CONTRIBUTING.md has a developer make the same link.
+      - name: link the checkout where V resolves the module
+        run: |
+          mkdir -p ~/.vmodules/vanadiume
+          ln -sfn "$GITHUB_WORKSPACE" ~/.vmodules/vanadiume/velocity
+          ls -l ~/.vmodules/vanadiume/velocity
+
+      - name: gate
+        run: |
+          v version
+          v run tools/gate.vsh
