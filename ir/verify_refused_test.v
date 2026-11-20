@@ -154,15 +154,103 @@ block3:
 	},
 	Refusal{
 		text:     'target 64 little 8
-fn @f() -> i32 {
+fn @f(%arg0: i32) -> i32 {
 block0:
-  %v0 = iadd %v1, 1
+  %v0 = iadd %arg0, %v1
   %v1 = iconst i32 2
   return %v0
 }
 '
 		code:     'V006'
 		fragment: 'before its definition at index 1'
+	},
+	Refusal{
+		text:     'target 64 little 8
+fn @f(%arg0: i32, %arg1: i64) -> i32 {
+block0:
+  %v0 = iadd %arg0, %arg1
+  return %v0
+}
+'
+		code:     'V007'
+		fragment: 'operand 2 of ' + "'iadd'" + ' has type i64, expected i32'
+	},
+	Refusal{
+		text:     'target 64 little 8
+fn @f() -> i32 {
+block0:
+  %v0 = iadd 1, 2
+  return %v0
+}
+'
+		code:     'V007'
+		fragment: 'has no operand with a type'
+	},
+	Refusal{
+		text:     'target 64 little 8
+fn @f(%arg0: i32, %arg1: i32) -> i32 {
+block0:
+  %v0 = iadd exact %arg0, %arg1
+  return %v0
+}
+'
+		code:     'V008'
+		fragment: 'does not accept the ' + "'exact'" + ' flag'
+	},
+	Refusal{
+		text:     'target 64 little 8
+fn @f(%arg0: i8) -> i8 {
+block0:
+  %v0 = iadd %arg0, 300
+  return %v0
+}
+'
+		code:     'V009'
+		fragment: 'does not fit i8'
+	},
+	Refusal{
+		text:     'target 64 little 8
+fn @f(%arg0: ptr) -> i3 {
+block0:
+  %v0 = load %arg0 : i3 align 1
+  return %v0
+}
+'
+		code:     'V015'
+		fragment: 'is i3, expected a byte-sized type'
+	},
+	Refusal{
+		text:     'target 64 little 8
+fn @f(%arg0: i12) -> i12 {
+block0:
+  %v0 = bswap %arg0
+  return %v0
+}
+'
+		code:     'V016'
+		fragment: 'expected a width that is a multiple of 8'
+	},
+	Refusal{
+		text:     'target 64 little 8
+fn @f(%arg0: ptr) -> i32 {
+block0:
+  %v0 = ptrtoint %arg0 to i32
+  return %v0
+}
+'
+		code:     'V017'
+		fragment: 'expected the pointer width i64'
+	},
+	Refusal{
+		text:     'target 64 little 8
+fn @f(%arg0: ptr) -> i32 {
+block0:
+  %v0 = load %arg0 : i32 align 3
+  return %v0
+}
+'
+		code:     'V010'
+		fragment: 'has align 3, expected a power of two'
 	},
 ]
 

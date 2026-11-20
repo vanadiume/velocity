@@ -90,12 +90,14 @@ pub fn verify_function(module &Module, function &Function) []VerifyError {
 				context.error('V003', "'${inst.opcode.name()}' is a terminator, so it ends its block and does not sit in the instruction list")
 				continue
 			}
+			context.check_instruction(module, function, inst)
 			context.check_uses(function, inst, idom, reachable)
 		}
 		context.inst = block.instructions.len
 		if !block.terminator.opcode.is_terminator() {
 			context.error('V003', 'the block has no terminator')
 		} else {
+			context.check_instruction(module, function, block.terminator)
 			context.check_uses(function, block.terminator, idom, reachable)
 		}
 	}
@@ -364,6 +366,691 @@ fn (mut c VerifyContext) check_block_params(function &Function, bi int) {
 		if problem != '' {
 			c.error('V007', 'parameter ${i + 1} of ${block_name(function, bi)} has type ${value.typ.str()}: ${problem}')
 		}
+	}
+}
+
+// check_instruction holds the rules that belong to one opcode: the flags it
+// accepts, how many results it produces, and the operand and result types the
+// instruction reference gives it. Uses are V006's business and are checked
+// beside it.
+fn (mut c VerifyContext) check_instruction(module &Module, function &Function, inst Instruction) {
+	c.check_flags(inst)
+	c.check_result_count(inst)
+	c.check_opcode(module, function, inst)
+}
+
+fn (mut c VerifyContext) check_flags(inst Instruction) {
+	name := inst.opcode.name()
+	if inst.flags.nsw && !accepts_flag(inst.opcode, 'nsw') {
+		c.error('V008', "'${name}' does not accept the 'nsw' flag")
+	}
+	if inst.flags.nuw && !accepts_flag(inst.opcode, 'nuw') {
+		c.error('V008', "'${name}' does not accept the 'nuw' flag")
+	}
+	if inst.flags.exact && !accepts_flag(inst.opcode, 'exact') {
+		c.error('V008', "'${name}' does not accept the 'exact' flag")
+	}
+	if inst.flags.inbounds && !accepts_flag(inst.opcode, 'inbounds') {
+		c.error('V008', "'${name}' does not accept the 'inbounds' flag")
+	}
+	if inst.flags.volatile && !accepts_flag(inst.opcode, 'volatile') {
+		c.error('V008', "'${name}' does not accept the 'volatile' flag")
+	}
+}
+
+// accepts_flag is the table from ir-instructions.md: a flag an opcode does not
+// list is an error, not an ignored bit. Volatile is also an inline asm clause,
+// so it is accepted in either place there.
+fn accepts_flag(op Opcode, flag string) bool {
+	return match flag {
+		'nsw' { op in [Opcode.iadd, .isub, .imul, .ineg, .shl] }
+		'nuw' { op in [Opcode.iadd, .isub, .imul, .shl] }
+		'exact' { op in [Opcode.sdiv, .udiv, .srem, .urem, .sshr, .ushr] }
+		'inbounds' { op == .ptradd }
+		'volatile' { op in [Opcode.load, .store, .inline_asm] }
+		else { false }
+	}
+}
+
+fn (mut c VerifyContext) check_result_count(inst Instruction) {
+	expected := inst.opcode.fixed_result_count()
+	if expected < 0 || inst.results.len == expected {
+		return
+	}
+	c.error('V007', "'${inst.opcode.name()}' takes ${result_count_phrase(expected)}, found ${inst.results.len}")
+}
+
+fn (mut c VerifyContext) check_opcode(module &Module, function &Function, inst Instruction) {
+	name := inst.opcode.name()
+	match inst.opcode {
+		.iconst {
+			if !c.check_stated_type(inst, inst.typ, .int, 'the constant') {
+				return
+			}
+			if c.expect_operand_count(inst, 1) {
+				c.expect_operand(function, inst, 0, inst.typ)
+				c.expect_results(function, inst, [inst.typ])
+			}
+		}
+		.fconst {
+			if !c.check_stated_type(inst, inst.typ, .float, 'the constant') {
+				return
+			}
+			if c.expect_operand_count(inst, 1) {
+				c.expect_operand(function, inst, 0, inst.typ)
+				c.expect_results(function, inst, [inst.typ])
+			}
+		}
+		.null {
+			if c.expect_operand_count(inst, 0) {
+				c.expect_results(function, inst, [ty_ptr])
+			}
+		}
+		.poison {
+			if c.check_type_valid(inst, inst.typ, 'the value') && c.expect_operand_count(inst, 0) {
+				c.expect_results(function, inst, [inst.typ])
+			}
+		}
+		.freeze {
+			if c.expect_operand_count(inst, 1) {
+				typ := c.operand_type(function, inst.operands[0])
+				if typ.is_unknown() {
+					c.error('V007', "operand 1 of 'freeze' has no type")
+				} else {
+					c.expect_results(function, inst, [typ])
+				}
+			}
+		}
+		.iadd, .isub, .imul, .sdiv, .udiv, .srem, .urem, .smin, .smax, .umin, .umax,
+		.sadd_sat, .uadd_sat, .ssub_sat, .usub_sat, .smul_sat, .umul_sat, .band, .bor,
+		.bxor, .shl, .sshr, .ushr, .rotl, .rotr {
+			if c.expect_operand_count(inst, 2) {
+				typ := c.shared_type(function, inst, 0, 2, [.int], 'an integer')
+				if !typ.is_unknown() {
+					c.expect_results(function, inst, [typ])
+				}
+			}
+		}
+		.sadd_overflow, .uadd_overflow, .ssub_overflow, .usub_overflow, .smul_overflow,
+		.umul_overflow {
+			if c.expect_operand_count(inst, 2) {
+				typ := c.shared_type(function, inst, 0, 2, [.int], 'an integer')
+				if !typ.is_unknown() {
+					c.expect_results(function, inst, [typ, ty_i1])
+				}
+			}
+		}
+		.ineg, .iabs, .bnot, .clz, .ctz, .popcnt, .bswap {
+			if c.expect_operand_count(inst, 1) {
+				typ := c.shared_type(function, inst, 0, 1, [.int], 'an integer')
+				if !typ.is_unknown() {
+					c.expect_results(function, inst, [typ])
+					if inst.opcode == .bswap && typ.bits % 8 != 0 {
+						c.error('V016', "'bswap' operates on ${typ.str()}, expected a width that is a multiple of 8")
+					}
+				}
+			}
+		}
+		.icmp {
+			if c.expect_operand_count(inst, 2) {
+				typ := c.shared_type(function, inst, 0, 2, [.int, .ptr], 'an integer or a pointer')
+				if typ.is_ptr() && inst.predicate !in pointer_predicates {
+					c.error('V007', "'icmp ${inst.predicate}' is not defined on pointers; only eq, ne, ult, ule, ugt and uge are")
+				}
+				if typ.is_int() && inst.predicate !in integer_predicates {
+					c.error('V007', "'icmp ${inst.predicate}' is not an integer predicate")
+				}
+				if !typ.is_unknown() {
+					c.expect_results(function, inst, [ty_i1])
+				}
+			}
+		}
+		.fcmp {
+			if c.expect_operand_count(inst, 2) {
+				typ := c.shared_type(function, inst, 0, 2, [.float], 'a float')
+				if inst.predicate !in float_predicates {
+					c.error('V007', "'fcmp ${inst.predicate}' is not a float predicate")
+				}
+				if !typ.is_unknown() {
+					c.expect_results(function, inst, [ty_i1])
+				}
+			}
+		}
+		.fadd, .fsub, .fmul, .fdiv, .frem, .fcopysign, .fmin, .fmax {
+			if c.expect_operand_count(inst, 2) {
+				typ := c.shared_type(function, inst, 0, 2, [.float], 'a float')
+				if !typ.is_unknown() {
+					c.expect_results(function, inst, [typ])
+				}
+			}
+		}
+		.fma {
+			if c.expect_operand_count(inst, 3) {
+				typ := c.shared_type(function, inst, 0, 3, [.float], 'a float')
+				if !typ.is_unknown() {
+					c.expect_results(function, inst, [typ])
+				}
+			}
+		}
+		.fneg, .fabs, .fsqrt, .fceil, .ffloor, .ftrunc, .fnearest {
+			if c.expect_operand_count(inst, 1) {
+				typ := c.shared_type(function, inst, 0, 1, [.float], 'a float')
+				if !typ.is_unknown() {
+					c.expect_results(function, inst, [typ])
+				}
+			}
+		}
+		.sext, .zext {
+			if c.expect_operand_count(inst, 1) {
+				from, to := c.check_conversion(function, inst, .int, .int)
+				if from.kind == .int && to.kind == .int && to.bits <= from.bits {
+					c.error('V007', "'${name}' extends ${from.str()} to ${to.str()}, expected a wider result")
+				}
+			}
+		}
+		.trunc {
+			if c.expect_operand_count(inst, 1) {
+				from, to := c.check_conversion(function, inst, .int, .int)
+				if from.kind == .int && to.kind == .int && to.bits >= from.bits {
+					c.error('V007', "'trunc' truncates ${from.str()} to ${to.str()}, expected a narrower result")
+				}
+			}
+		}
+		.sitofp, .uitofp {
+			if c.expect_operand_count(inst, 1) {
+				c.check_conversion(function, inst, .int, .float)
+			}
+		}
+		.fptosi, .fptoui {
+			if c.expect_operand_count(inst, 1) {
+				c.check_conversion(function, inst, .float, .int)
+			}
+		}
+		.fpext {
+			if c.expect_operand_count(inst, 1) {
+				from, to := c.check_conversion(function, inst, .float, .float)
+				if from.kind == .float && to.kind == .float && to.bits <= from.bits {
+					c.error('V007', "'fpext' extends ${from.str()} to ${to.str()}, expected a wider result")
+				}
+			}
+		}
+		.fptrunc {
+			if c.expect_operand_count(inst, 1) {
+				from, to := c.check_conversion(function, inst, .float, .float)
+				if from.kind == .float && to.kind == .float && to.bits >= from.bits {
+					c.error('V007', "'fptrunc' narrows ${from.str()} to ${to.str()}, expected a narrower result")
+				}
+			}
+		}
+		.bitcast {
+			if c.expect_operand_count(inst, 1) {
+				from := c.operand_type(function, inst.operands[0])
+				to := inst.typ
+				if from.is_unknown() {
+					c.error('V007', "operand 1 of 'bitcast' has no type")
+				} else if from.is_ptr() {
+					c.error('V007', "'bitcast' does not accept a pointer operand; use ptrtoint")
+				} else if c.check_type_valid(inst, to, 'the result') {
+					if to.is_ptr() {
+						c.error('V007', "'bitcast' does not accept a pointer result; use inttoptr")
+					} else if from.bit_size(module.target.pointer_width) != to.bit_size(module.target.pointer_width) {
+						c.error('V007', "'bitcast' from ${from.str()} to ${to.str()}, expected equal bit widths")
+					}
+					c.expect_results(function, inst, [to])
+				}
+			}
+		}
+		.ptrtoint {
+			if c.expect_operand_count(inst, 1) {
+				c.expect_operand(function, inst, 0, ty_ptr)
+				if c.check_stated_type(inst, inst.typ, .int, 'the result') {
+					if inst.typ.bits != module.target.pointer_width {
+						c.error('V017', "'ptrtoint' produces ${inst.typ.str()}, expected the pointer width i${module.target.pointer_width}")
+					}
+					c.expect_results(function, inst, [inst.typ])
+				}
+			}
+		}
+		.inttoptr {
+			if c.expect_operand_count(inst, 1) {
+				from := c.operand_type(function, inst.operands[0])
+				if from.is_unknown() {
+					c.error('V007', "operand 1 of 'inttoptr' has no type, expected the pointer-width integer")
+				} else if !from.is_int() {
+					c.error('V007', "operand 1 of 'inttoptr' has type ${from.str()}, expected an integer")
+				} else if from.bits != module.target.pointer_width {
+					c.error('V017', "'inttoptr' takes ${from.str()}, expected the pointer width i${module.target.pointer_width}")
+				}
+				if c.check_stated_type(inst, inst.typ, .ptr, 'the result') {
+					c.expect_results(function, inst, [ty_ptr])
+				}
+			}
+		}
+		.@select {
+			if c.expect_operand_count(inst, 3) {
+				c.expect_operand(function, inst, 0, ty_i1)
+				typ := c.shared_type(function, inst, 1, 2, [.int, .float, .ptr], 'a scalar')
+				if !typ.is_unknown() {
+					c.expect_results(function, inst, [typ])
+				}
+			}
+		}
+		.load {
+			if c.expect_operand_count(inst, 1) {
+				c.expect_operand(function, inst, 0, ty_ptr)
+				if c.check_memory_type(inst, inst.typ, 'the result') {
+					c.expect_results(function, inst, [inst.typ])
+				}
+				c.check_align(inst, inst.align, '')
+			}
+		}
+		.store {
+			if c.expect_operand_count(inst, 2) {
+				c.expect_operand(function, inst, 0, ty_ptr)
+				c.check_store_value(function, inst)
+				c.check_align(inst, inst.align, '')
+			}
+		}
+		.ptradd {
+			if c.expect_operand_count(inst, 2) {
+				c.expect_operand(function, inst, 0, ty_ptr)
+				c.expect_integer_operand(function, inst, 1)
+				c.expect_results(function, inst, [ty_ptr])
+			}
+		}
+		.memcpy, .memmove {
+			if c.expect_operand_count(inst, 3) {
+				c.expect_operand(function, inst, 0, ty_ptr)
+				c.expect_operand(function, inst, 1, ty_ptr)
+				c.expect_integer_operand(function, inst, 2)
+				c.check_align(inst, inst.align_dst, 'dst')
+				c.check_align(inst, inst.align_src, 'src')
+			}
+		}
+		.memset {
+			if c.expect_operand_count(inst, 3) {
+				c.expect_operand(function, inst, 0, ty_ptr)
+				c.expect_operand(function, inst, 1, ty_i8)
+				c.expect_integer_operand(function, inst, 2)
+				c.check_align(inst, inst.align, '')
+			}
+		}
+		.stack_addr {
+			if c.expect_operand_count(inst, 1) {
+				c.check_stack_operand(function, inst)
+				c.expect_results(function, inst, [ty_ptr])
+			}
+		}
+		.global_addr {
+			if c.expect_operand_count(inst, 1) {
+				c.check_symbol_operand(module, inst, .global)
+				c.expect_results(function, inst, [ty_ptr])
+			}
+		}
+		.func_addr {
+			if c.expect_operand_count(inst, 1) {
+				c.check_symbol_operand(module, inst, .function)
+				c.expect_results(function, inst, [ty_ptr])
+			}
+		}
+		else {}
+	}
+}
+
+const integer_predicates = ['eq', 'ne', 'slt', 'sle', 'sgt', 'sge', 'ult', 'ule', 'ugt', 'uge']
+
+const pointer_predicates = ['eq', 'ne', 'ult', 'ule', 'ugt', 'uge']
+
+const float_predicates = ['oeq', 'one', 'olt', 'ole', 'ogt', 'oge', 'ueq', 'une', 'ult', 'ule',
+	'ugt', 'uge', 'ord', 'uno']
+
+// operand_type is a value's type or a float immediate's stated type. An integer
+// immediate has none of its own: it takes the type of the position it fills.
+fn (c &VerifyContext) operand_type(function &Function, operand Operand) Type {
+	match operand.kind {
+		.value {
+			if operand.idx >= 0 && operand.idx < function.values.len {
+				return function.values[operand.idx].typ
+			}
+			return ty_unknown
+		}
+		.float_imm {
+			return operand.typ
+		}
+		else {
+			return ty_unknown
+		}
+	}
+}
+
+fn (mut c VerifyContext) expect_operand_count(inst Instruction, count int) bool {
+	if inst.operands.len == count {
+		return true
+	}
+	c.error('V007', "'${inst.opcode.name()}' takes ${operand_count_phrase(count)}, found ${inst.operands.len}")
+	return false
+}
+
+// expect_operand checks one operand against the type its position gives it.
+fn (mut c VerifyContext) expect_operand(function &Function, inst Instruction, index int,
+	expected Type) bool {
+	if index < 0 || index >= inst.operands.len {
+		return false
+	}
+	return c.expect_operand_is(function, inst.operands[index], expected, 'V007',
+		"operand ${index + 1} of '${inst.opcode.name()}'")
+}
+
+// expect_operand_is is the rule for one operand at any site: an instruction
+// operand, a jump argument, a return value. An integer immediate is typed by the
+// position, so it must fit the expected width.
+fn (mut c VerifyContext) expect_operand_is(function &Function, operand Operand, expected Type,
+	code string, site string) bool {
+	if expected.is_unknown() {
+		return true
+	}
+	match operand.kind {
+		.value {
+			actual := c.operand_type(function, operand)
+			if actual.is_unknown() {
+				c.error(code, '${site} is a value with no type, expected ${expected.str()}')
+				return false
+			}
+			if actual != expected {
+				c.error(code, '${site} has type ${actual.str()}, expected ${expected.str()}')
+				return false
+			}
+			return true
+		}
+		.int_imm {
+			if expected.kind != .int {
+				c.error(code, '${site} is an integer immediate, expected ${expected.str()}')
+				return false
+			}
+			if !immediate_fits(operand.imm, expected.bits) {
+				c.error('V009', '${site} has an immediate that does not fit ${expected.str()}')
+				return false
+			}
+			return true
+		}
+		.float_imm {
+			if expected.kind != .float || operand.typ != expected {
+				c.error(code, '${site} is a ${operand.typ.str()} immediate, expected ${expected.str()}')
+				return false
+			}
+			return true
+		}
+		.symbol {
+			c.error(code, '${site} is a symbol, expected ${expected.str()}')
+			return false
+		}
+		.stack_slot {
+			c.error(code, '${site} is a stack slot, expected ${expected.str()}')
+			return false
+		}
+	}
+}
+
+// expect_integer_operand is a position whose width the opcode does not fix: a
+// ptradd offset, a memcpy length. A value must be an integer, and an immediate
+// is one already.
+fn (mut c VerifyContext) expect_integer_operand(function &Function, inst Instruction, index int) bool {
+	if index < 0 || index >= inst.operands.len {
+		return false
+	}
+	operand := inst.operands[index]
+	site := "operand ${index + 1} of '${inst.opcode.name()}'"
+	match operand.kind {
+		.int_imm {
+			return true
+		}
+		.float_imm {
+			c.error('V007', '${site} is a ${operand.typ.str()} immediate, expected an integer')
+			return false
+		}
+		.value {
+			typ := c.operand_type(function, operand)
+			if typ.is_unknown() {
+				c.error('V007', '${site} has no type, expected an integer')
+				return false
+			}
+			if !typ.is_int() {
+				c.error('V007', '${site} has type ${typ.str()}, expected an integer')
+				return false
+			}
+			return true
+		}
+		else {
+			c.error('V007', '${site} is not an integer')
+			return false
+		}
+	}
+}
+
+// shared_type is the type every operand in a range must share: the first typed
+// operand gives it, and an integer immediate is then typed by it.
+fn (mut c VerifyContext) shared_type(function &Function, inst Instruction, start int,
+	count int, kinds []TypeKind, what string) Type {
+	mut shared := ty_unknown
+	mut from := -1
+	for i in start .. start + count {
+		if i >= inst.operands.len {
+			break
+		}
+		typ := c.operand_type(function, inst.operands[i])
+		if typ.is_unknown() {
+			continue
+		}
+		if shared.is_unknown() {
+			shared = typ
+			from = i
+		}
+	}
+	if shared.is_unknown() {
+		c.error('V007', "'${inst.opcode.name()}' has no operand with a type: an immediate takes its type from the operand beside it")
+		return ty_unknown
+	}
+	if shared.kind !in kinds {
+		c.error('V007', "operand ${from + 1} of '${inst.opcode.name()}' has type ${shared.str()}, expected ${what}")
+	}
+	for i in start .. start + count {
+		if i >= inst.operands.len {
+			break
+		}
+		c.expect_operand(function, inst, i, shared)
+	}
+	return shared
+}
+
+fn (mut c VerifyContext) expect_results(function &Function, inst Instruction, expected []Type) {
+	name := inst.opcode.name()
+	if inst.results.len != expected.len {
+		c.error('V007', "'${name}' takes ${result_count_phrase(expected.len)}, found ${inst.results.len}")
+	}
+	for i in 0 .. inst.results.len {
+		if i >= expected.len {
+			break
+		}
+		index := inst.results[i]
+		if index < 0 || index >= function.values.len {
+			continue
+		}
+		actual := function.values[index].typ
+		if actual.is_unknown() {
+			c.error('V007', "result ${i + 1} of '${name}' has no type, expected ${expected[i].str()}")
+		} else if actual != expected[i] {
+			c.error('V007', "result ${i + 1} of '${name}' has type ${actual.str()}, expected ${expected[i].str()}")
+		}
+	}
+}
+
+// check_conversion is the shape all the scalar conversions share: one typed
+// operand and a stated result type. The width relation is the caller's rule
+// because each opcode states its own.
+fn (mut c VerifyContext) check_conversion(function &Function, inst Instruction, in_kind TypeKind,
+	out_kind TypeKind) (Type, Type) {
+	name := inst.opcode.name()
+	mut from := ty_unknown
+	if inst.operands.len > 0 {
+		operand := inst.operands[0]
+		if operand.kind == .int_imm {
+			c.error('V007', "'${name}' needs a typed operand, and an integer immediate has no source width")
+			return ty_unknown, ty_unknown
+		}
+		from = c.operand_type(function, operand)
+		if from.is_unknown() {
+			c.error('V007', "operand 1 of '${name}' has no type")
+			return ty_unknown, ty_unknown
+		}
+		if from.kind != in_kind {
+			c.error('V007', "operand 1 of '${name}' has type ${from.str()}, expected ${kind_text(in_kind)}")
+			return from, ty_unknown
+		}
+	}
+	to := inst.typ
+	if !c.check_stated_type(inst, to, out_kind, 'the result') {
+		return from, ty_unknown
+	}
+	c.expect_results(function, inst, [to])
+	return from, to
+}
+
+fn (mut c VerifyContext) check_stated_type(inst Instruction, typ Type, kind TypeKind,
+	what string) bool {
+	if !c.check_type_valid(inst, typ, what) {
+		return false
+	}
+	if typ.kind != kind {
+		c.error('V007', "${what} of '${inst.opcode.name()}' has type ${typ.str()}, expected ${kind_text(kind)}")
+		return false
+	}
+	return true
+}
+
+fn (mut c VerifyContext) check_type_valid(inst Instruction, typ Type, what string) bool {
+	problem := type_problem(typ)
+	if problem == '' {
+		return true
+	}
+	c.error('V007', "${what} of '${inst.opcode.name()}' has type ${typ.str()}: ${problem}")
+	return false
+}
+
+fn (mut c VerifyContext) check_memory_type(inst Instruction, typ Type, what string) bool {
+	problem := type_problem(typ)
+	if problem != '' {
+		c.error('V007', "${what} of '${inst.opcode.name()}' has type ${typ.str()}: ${problem}")
+		return false
+	}
+	if !typ.is_memory() {
+		c.error('V015', "${what} of '${inst.opcode.name()}' is ${typ.str()}, expected a byte-sized type")
+		return false
+	}
+	return true
+}
+
+fn (mut c VerifyContext) check_store_value(function &Function, inst Instruction) {
+	operand := inst.operands[1]
+	typ := c.operand_type(function, operand)
+	if typ.is_unknown() {
+		if operand.kind == .int_imm {
+			c.error('V007', "operand 2 of 'store' is an integer immediate, which has no type; write an iconst for it")
+		} else {
+			c.error('V007', "operand 2 of 'store' has no type")
+		}
+		return
+	}
+	c.check_memory_type(inst, typ, 'the value')
+}
+
+fn (mut c VerifyContext) check_align(inst Instruction, align u16, which string) {
+	if is_power_of_two(int(align)) {
+		return
+	}
+	label := if which == '' { 'align ${align}' } else { 'align ${which} ${align}' }
+	c.error('V010', "'${inst.opcode.name()}' has ${label}, expected a power of two greater than zero")
+}
+
+fn (mut c VerifyContext) check_stack_operand(function &Function, inst Instruction) {
+	operand := inst.operands[0]
+	if operand.kind != .stack_slot {
+		c.error('V007', "operand 1 of 'stack_addr' is not a stack slot")
+		return
+	}
+	if operand.idx < 0 || operand.idx >= function.stack_slots.len {
+		c.error('V009', "stack slot '${operand.name}' is not declared by the function")
+	}
+}
+
+fn (mut c VerifyContext) check_symbol_operand(module &Module, inst Instruction,
+	wanted SymbolKind) {
+	operand := inst.operands[0]
+	if operand.kind != .symbol {
+		c.error('V007', "operand 1 of '${inst.opcode.name()}' is not a symbol")
+		return
+	}
+	kind, _ := resolve_symbol(module, operand)
+	if kind != wanted {
+		what := if wanted == .global { 'a global' } else { 'a function' }
+		c.error('V009', "'${inst.opcode.name()}' names '@${operand.name}', which is not ${what}")
+	}
+}
+
+// resolve_symbol takes the parser's resolution when it is in range and falls
+// back to the name, so a module a builder assembled without resolving still
+// verifies against what it declares.
+fn resolve_symbol(module &Module, operand Operand) (SymbolKind, int) {
+	if operand.sym == .function && operand.idx >= 0 && operand.idx < module.functions.len {
+		return .function, operand.idx
+	}
+	if operand.sym == .global && operand.idx >= 0 && operand.idx < module.globals.len {
+		return .global, operand.idx
+	}
+	if index := module.find_function_index(operand.name) {
+		return .function, index
+	}
+	if index := module.find_global_index(operand.name) {
+		return .global, index
+	}
+	return .none, -1
+}
+
+// immediate_fits is the range an immediate has in a position of the stated
+// width. Text writes a negative literal as its 128-bit two's complement, so the
+// value fits when it is inside the unsigned range or when it is the sign
+// extension of an N-bit value. Both spellings are printable, and -200 in an i8
+// position is neither: it is -56 once truncated, which is not what was written.
+fn immediate_fits(value u128, bits u16) bool {
+	if bits == 0 {
+		return false
+	}
+	if bits >= 128 {
+		return true
+	}
+	mask := (u128(1) << bits) - 1
+	low := value & mask
+	if value == low {
+		return true
+	}
+	return value == (low | ~mask)
+}
+
+fn operand_count_phrase(count int) string {
+	return match count {
+		0 { 'no operands' }
+		1 { 'one operand' }
+		2 { 'two operands' }
+		3 { 'three operands' }
+		else { '${count} operands' }
+	}
+}
+
+fn result_count_phrase(count int) string {
+	return match count {
+		0 { 'no results' }
+		1 { 'one result' }
+		2 { 'two results' }
+		else { '${count} results' }
 	}
 }
 
