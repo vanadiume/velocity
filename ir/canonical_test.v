@@ -50,8 +50,8 @@ fn test_globals_keep_their_order_and_bytes() {
 
 fn test_functions_keep_their_order() {
 	m := load_canonical()
-	names := ['puts', 'identity', 'minmax', 'max', 'classify', 'dispatch', 'copy', 'tail',
-		'forward_ref', 'late_function']
+	names := ['puts', 'identity', 'minmax', 'max', 'classify', 'dispatch', 'copy', 'tail', 'forward_ref',
+		'late_function']
 	assert m.functions.len == names.len
 	for i in 0 .. names.len {
 		assert m.functions[i].name == names[i]
