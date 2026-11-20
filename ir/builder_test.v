@@ -796,3 +796,266 @@ fn test_a_loop_that_breaks_out() {
 	assert function.blocks[continue_block].terminator.target.block == loop.head
 	assert_verified_function(function)
 }
+
+// build_every_opcode is the builder's completeness check: one method per
+// opcode, and the functions they build verify. The text corpus already proves
+// the verifier covers the set; this proves the frontend can reach all of it.
+fn build_every_opcode() Module {
+	mut module := Module{
+		target: builder_target()
+	}
+	callee := Signature{
+		params:  [ty_i32]
+		results: [ty_i32]
+	}
+
+	mut constants := new_function('op_constants', [ty_i32], [ty_i32])
+	mut builder := new_builder(mut constants, builder_target())
+	entry := builder.create_entry_block()
+	builder.switch_to_block(entry)
+	answer := builder.iconst(ty_i32, 1)
+	builder.fconst(ty_f64, u128(0))
+	builder.null()
+	builder.poison(ty_i32)
+	builder.freeze(builder.param(0))
+	builder.return_([answer])
+	builder.finish()
+	module.functions << constants
+
+	mut integer := new_function('op_integer', [ty_i32, ty_i32], [ty_i32])
+	mut ib := new_builder(mut integer, builder_target())
+	start := ib.create_entry_block()
+	ib.switch_to_block(start)
+	a := ib.param(0)
+	c := ib.param(1)
+	one := ib.iconst(ty_i32, 1)
+	mut value := ib.iadd(a, c)
+	value = ib.isub(value, c)
+	value = ib.imul(value, c)
+	value = ib.sdiv(value, c)
+	value = ib.udiv(value, c)
+	value = ib.srem(value, c)
+	value = ib.urem(value, c)
+	value = ib.ineg(value)
+	value = ib.iabs(value)
+	value = ib.smin(value, a)
+	value = ib.smax(value, a)
+	value = ib.umin(value, a)
+	value = ib.umax(value, a)
+	value = ib.sadd_overflow(value, c).value
+	value = ib.uadd_overflow(value, c).value
+	value = ib.ssub_overflow(value, c).value
+	value = ib.usub_overflow(value, c).value
+	value = ib.smul_overflow(value, c).value
+	value = ib.umul_overflow(value, c).value
+	value = ib.sadd_sat(value, c)
+	value = ib.uadd_sat(value, c)
+	value = ib.ssub_sat(value, c)
+	value = ib.usub_sat(value, c)
+	value = ib.smul_sat(value, c)
+	value = ib.umul_sat(value, c)
+	value = ib.band(value, c)
+	value = ib.bor(value, c)
+	value = ib.bxor(value, c)
+	value = ib.bnot(value)
+	value = ib.shl(value, one)
+	value = ib.sshr(value, one)
+	value = ib.ushr(value, one)
+	value = ib.rotl(value, one)
+	value = ib.rotr(value, one)
+	value = ib.clz(value)
+	value = ib.ctz(value)
+	value = ib.popcnt(value)
+	value = ib.bswap(value)
+	ib.return_([value])
+	ib.finish()
+	module.functions << integer
+
+	mut float := new_function('op_float', [ty_f64, ty_f64, ty_f64], [ty_f64])
+	mut fb := new_builder(mut float, builder_target())
+	float_entry := fb.create_entry_block()
+	fb.switch_to_block(float_entry)
+	x := fb.param(0)
+	y := fb.param(1)
+	z := fb.param(2)
+	mut f := fb.fadd(x, y)
+	f = fb.fsub(f, y)
+	f = fb.fmul(f, y)
+	f = fb.fdiv(f, y)
+	f = fb.frem(f, y)
+	f = fb.fneg(f)
+	f = fb.fabs(f)
+	f = fb.fsqrt(f)
+	f = fb.fcopysign(f, y)
+	f = fb.fma(f, y, z)
+	f = fb.fmin(f, y)
+	f = fb.fmax(f, y)
+	f = fb.fceil(f)
+	f = fb.ffloor(f)
+	f = fb.ftrunc(f)
+	f = fb.fnearest(f)
+	fb.fcmp(.ueq, x, y)
+	fb.return_([f])
+	fb.finish()
+	module.functions << float
+
+	mut conversion := new_function('op_conversion', [ty_i32, ty_i64, ty_f32, ty_f64, ty_ptr],
+		[ty_i64])
+	mut cb := new_builder(mut conversion, builder_target())
+	conversion_entry := cb.create_entry_block()
+	cb.switch_to_block(conversion_entry)
+	small := cb.param(0)
+	large := cb.param(1)
+	narrow := cb.param(2)
+	wide := cb.param(3)
+	pointer := cb.param(4)
+	cb.sext(small, ty_i64)
+	cb.zext(small, ty_i64)
+	cb.trunc(large, ty_i32)
+	cb.bitcast(wide, ty_i64)
+	cb.sitofp(small, ty_f64)
+	cb.uitofp(small, ty_f64)
+	cb.fptosi(wide, ty_i32)
+	cb.fptoui(wide, ty_i32)
+	cb.fpext(narrow, ty_f64)
+	cb.fptrunc(wide, ty_f32)
+	address := cb.ptrtoint(pointer, ty_i64)
+	back := cb.inttoptr(address, ty_ptr)
+	fb_condition := cb.icmp(.ugt, address, large)
+	chosen := cb.select(fb_condition, address, large)
+	cb.return_([chosen])
+	cb.finish()
+	module.functions << conversion
+
+	mut memory := new_function('op_memory', [ty_ptr, ty_ptr, ty_i64], [ty_i32])
+	mut mb := new_builder(mut memory, builder_target())
+	memory_entry := mb.create_entry_block()
+	mb.switch_to_block(memory_entry)
+	dst := mb.param(0)
+	src := mb.param(1)
+	len := mb.param(2)
+	loaded := mb.load(dst, ty_i32)
+	mb.store(src, loaded)
+	shifted := mb.ptradd(dst, len)
+	mb.memcpy(dst, src, len, 4, 4)
+	mb.memmove(src, dst, len, 4, 4)
+	mb.memset(dst, mb.iconst(ty_i8, 0), len, 4)
+	slot := mb.create_stack_slot(8, 4, 'slot')
+	slot_address := mb.stack_addr(slot)
+	mb.store_aligned(slot_address, loaded, 4)
+	mb.global_addr('data')
+	mb.func_addr('op_constants')
+	mb.store(shifted, loaded)
+	mb.return_([loaded])
+	mb.finish()
+	module.functions << memory
+
+	mut calls := new_function('op_calls', [ty_ptr, ty_i32], [ty_i32])
+	mut callb := new_builder(mut calls, builder_target())
+	calls_entry := callb.create_entry_block()
+	callb.switch_to_block(calls_entry)
+	callee_pointer := callb.param(0)
+	argument := callb.param(1)
+	direct := callb.call('callee', callee, [argument])
+	indirect := callb.call_indirect(callee_pointer, callee, [direct[0]])
+	callb.assume(callb.icmp(.ne, indirect[0], callb.iconst(ty_i32, 0)))
+	assembled := callb.inline_asm(Asm{
+		template: 'mov $1, $0'
+		outputs:  [
+			AsmOutput{
+				typ:        ty_i32
+				constraint: '=r'
+			},
+		]
+		inputs:   [
+			AsmInput{
+				value:      indirect[0]
+				constraint: 'r'
+			},
+		]
+	})
+	taken := callb.create_block()
+	other := callb.create_block()
+	join := callb.create_block()
+	callb.condbr(callb.icmp(.slt, assembled[0], argument), taken, [], other, [])
+	callb.switch_to_block(taken)
+	callb.br(join, [])
+	callb.switch_to_block(other)
+	callb.switch_(argument, join, [], [
+		Case{
+			value: u128(1)
+			block: join
+		},
+	])
+	callb.switch_to_block(join)
+	callb.return_([assembled[0]])
+	callb.finish()
+	module.functions << calls
+
+	mut tail := new_function('op_tail', [ty_i32], [ty_i32])
+	mut tailb := new_builder(mut tail, builder_target())
+	tail_entry := tailb.create_entry_block()
+	tailb.switch_to_block(tail_entry)
+	tailb.tailcall('callee', callee, [tailb.param(0)])
+	tailb.finish()
+	module.functions << tail
+
+	mut tail_indirect := new_function('op_tail_indirect', [ty_ptr, ty_i32], [ty_i32])
+	mut tib := new_builder(mut tail_indirect, builder_target())
+	tib_entry := tib.create_entry_block()
+	tib.switch_to_block(tib_entry)
+	tib.tailcall_indirect(tib.param(0), callee, [tib.param(1)])
+	tib.finish()
+	module.functions << tail_indirect
+
+	mut never := new_function('op_unreachable', [], [])
+	mut neverb := new_builder(mut never, builder_target())
+	never_entry := neverb.create_entry_block()
+	neverb.switch_to_block(never_entry)
+	neverb.unreachable()
+	neverb.finish()
+	module.functions << never
+
+	mut stop := new_function('op_trap', [], [])
+	mut stopb := new_builder(mut stop, builder_target())
+	stop_entry := stopb.create_entry_block()
+	stopb.switch_to_block(stop_entry)
+	stopb.trap(3)
+	stopb.finish()
+	module.functions << stop
+
+	module.functions << Function{
+		name:      'callee'
+		signature: callee
+	}
+	module.globals << Global{
+		name:  'data'
+		size:  8
+		align: 8
+	}
+	return module
+}
+
+fn test_every_opcode_has_a_builder_method() {
+	module := build_every_opcode()
+	mut seen := map[Opcode]bool{}
+	for function in module.functions {
+		for block in function.blocks {
+			for inst in block.instructions {
+				seen[inst.opcode] = true
+			}
+			if block.terminator.opcode.is_terminator() {
+				seen[block.terminator.opcode] = true
+			}
+		}
+	}
+	mut missing := []string{}
+	for op in all_opcodes() {
+		if op !in seen {
+			missing << op.name()
+		}
+	}
+	assert missing.len == 0, 'no builder method builds: ${missing.join(', ')}'
+	errors := verify_module(&module)
+	assert errors.len == 0, errors.map(it.msg()).join('\n')
+}
