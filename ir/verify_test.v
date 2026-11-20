@@ -380,3 +380,44 @@ fn test_a_function_with_ten_thousand_blocks_verifies() {
 	errors := verify_module(module)
 	assert errors.len == 0, messages(errors)
 }
+
+// A loop header has two predecessors once the back edge exists, so this is the
+// case where the dominator fixpoint has to settle rather than take the first
+// predecessor it sees.
+fn test_a_loop_verifies() {
+	assert_verified('target 64 little 8
+fn @loop(%arg0: i32) -> i32 {
+block0:
+  br block1(%arg0)
+block1(%v0: i32):
+  %v1 = icmp sgt %v0, 10
+  condbr %v1, block3(%v0), block2()
+block2:
+  %v2 = iadd %v0, 1
+  br block1(%v2)
+block3(%v3: i32):
+  return %v3
+}
+')
+}
+
+fn test_a_value_from_a_loop_body_is_not_available_in_the_header() {
+	errors := verify_text('target 64 little 8
+fn @loop(%arg0: i32) -> i32 {
+block0:
+  br block1(%arg0)
+block1(%v0: i32):
+  %v1 = iadd %arg0, %v2
+  br block2()
+block2:
+  %v2 = iconst i32 1
+  %v3 = icmp eq %v0, 0
+  condbr %v3, block1(%v2), block3(%v0)
+block3(%v4: i32):
+  return %v4
+}
+')
+	assert errors.len == 1, messages(errors)
+	assert errors[0].code == 'V006'
+	assert errors[0].message.contains('is defined in block2 and used in block1')
+}

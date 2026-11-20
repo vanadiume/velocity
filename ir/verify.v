@@ -59,7 +59,7 @@ pub fn verify_function(module &Module, function &Function) []VerifyError {
 	context.check_signature(function)
 	if !function.defined {
 		if function.blocks.len > 0 {
-			context.error('V002', 'this is a declaration, so it has no blocks, and it has ${function.blocks.len}')
+			context.error('V002', 'a declaration has no blocks, and this one has ${function.blocks.len}')
 		}
 		return context.errors
 	}
@@ -861,13 +861,13 @@ fn (mut c VerifyContext) check_indirect_call(function &Function, inst Instructio
 	for i, typ in signature.params {
 		problem := type_problem(typ)
 		if problem != '' {
-			c.error('V012', "parameter ${i + 1} of the signature '${name}' carries has type ${typ.str()}: ${problem}")
+			c.error('V012', "parameter ${i + 1} of the signature on '${name}' has type ${typ.str()}: ${problem}")
 		}
 	}
 	for i, typ in signature.results {
 		problem := type_problem(typ)
 		if problem != '' {
-			c.error('V012', "result ${i + 1} of the signature '${name}' carries has type ${typ.str()}: ${problem}")
+			c.error('V012', "result ${i + 1} of the signature on '${name}' has type ${typ.str()}: ${problem}")
 		}
 	}
 	args := inst.operands[1..]
