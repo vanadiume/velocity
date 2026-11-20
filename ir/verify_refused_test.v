@@ -252,6 +252,121 @@ block0:
 		code:     'V010'
 		fragment: 'has align 3, expected a power of two'
 	},
+	Refusal{
+		text:     'target 64 little 8
+fn @f() {
+block0:
+  br block1(1)
+block1(%v0: i32, %v1: i32):
+  return
+}
+'
+		code:     'V004'
+		fragment: 'passes 1 arguments, and block1 takes 2'
+	},
+	Refusal{
+		text:     'target 64 little 8
+fn @f(%arg0: i64) {
+block0:
+  br block1(%arg0)
+block1(%v0: i32):
+  return
+}
+'
+		code:     'V004'
+		fragment: 'has type i64, expected i32'
+	},
+	Refusal{
+		text:     'target 64 little 8
+fn @f() -> i32 {
+block0:
+  return
+}
+'
+		code:     'V011'
+		fragment: 'the function returns one value'
+	},
+	Refusal{
+		text:     'target 64 little 8
+fn @f(%arg0: i32) -> i64 {
+block0:
+  return %arg0
+}
+'
+		code:     'V011'
+		fragment: 'has type i32, expected i64'
+	},
+	Refusal{
+		text:     'target 64 little 8
+extern fn @g(%arg0: i64) -> i64
+
+fn @f(%arg0: i32) -> i64 {
+block0:
+  %v0 = call @g(%arg0)
+  return %v0
+}
+'
+		code:     'V012'
+		fragment: 'has type i32, expected i64'
+	},
+	Refusal{
+		text:     'target 64 little 8
+fn @f(%arg0: ptr) -> i32 {
+block0:
+  %v0 = call_indirect %arg0 : (i32) -> i32 ()
+  return %v0
+}
+'
+		code:     'V012'
+		fragment: 'carries 1 parameters, and the call passes 0 arguments'
+	},
+	Refusal{
+		text:     'target 64 little 8
+extern fn @g(%arg0: i64) -> i64
+
+fn @f(%arg0: i64) -> i32 {
+block0:
+  tailcall @g(%arg0)
+}
+'
+		code:     'V013'
+		fragment: 'returns i64, and the function returns i32'
+	},
+	Refusal{
+		text:     'target 64 little 8
+fn @f(%arg0: i32) {
+block0:
+  switch %arg0, block1(), 0: block1(), 0: block1()
+block1:
+  return
+}
+'
+		code:     'V014'
+		fragment: 'repeats case 1'
+	},
+	Refusal{
+		text:     'target 64 little 8
+fn @f(%arg0: i8) {
+block0:
+  switch %arg0, block1(), 300: block1()
+block1:
+  return
+}
+'
+		code:     'V014'
+		fragment: 'does not fit i8'
+	},
+	Refusal{
+		text:     'target 64 little 8
+fn @f(%arg0: i64) -> i64 {
+block0:
+  %v0 = inline_asm "nop" out(i64, "=r") in(%arg0, "")
+  return %v0
+}
+'
+		code:     'V018'
+		fragment: 'names no constraint'
+	},
 ]
 
 fn test_the_refused_corpus() {

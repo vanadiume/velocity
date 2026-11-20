@@ -289,8 +289,11 @@ block0:
 
 fn test_an_operand_naming_a_value_that_does_not_exist_is_refused() {
 	mut function := Function{
-		name:    'f'
-		defined: true
+		name:      'f'
+		defined:   true
+		signature: Signature{
+			results: [ty_i32]
+		}
 	}
 	function.blocks << Block{
 		label:      'block0'
@@ -426,4 +429,58 @@ block0:
 	assert errors.len == 1, messages(errors)
 	assert errors[0].code == 'V007'
 	assert errors[0].message.contains('write an iconst for it')
+}
+
+fn test_a_switch_with_negative_cases_verifies() {
+	assert_verified('target 64 little 8
+fn @f(%arg0: i8) -> i8 {
+block0:
+  switch %arg0, block1(-1), -1: block1(0), 127: block1(-128)
+block1(%v0: i8):
+  return %v0
+}
+')
+}
+
+fn test_a_tail_call_and_an_indirect_call_verify() {
+	assert_verified('target 64 little 8
+extern fn @identity(%arg0: i64) -> i64
+
+fn @forward(%arg0: i64) -> i64 {
+block0:
+  tailcall @identity(%arg0)
+}
+
+fn @indirect(%arg0: ptr) -> i32 {
+block0:
+  %v0 = call_indirect %arg0 : (i32) -> i32 (5)
+  %v1 = call_indirect %arg0 : () -> i32 ()
+  return %v1
+}
+')
+}
+
+fn test_inline_asm_with_an_output_verifies() {
+	assert_verified('target 64 little 8
+fn @read_tsc() -> i64 {
+block0:
+  %v0 = inline_asm "rdtsc" out(i64, "=A")
+  return %v0
+}
+')
+}
+
+fn test_a_call_to_a_function_declared_later_verifies() {
+	assert_verified('target 64 little 8
+fn @caller(%arg0: i64) -> i64 {
+block0:
+  %v0 = call @later(%arg0)
+  return %v0
+}
+
+fn @later(%arg0: i64) -> i64 {
+block0:
+  return %arg0
+}
+')
 }

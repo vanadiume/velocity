@@ -693,8 +693,285 @@ fn (mut c VerifyContext) check_opcode(module &Module, function &Function, inst I
 				c.expect_results(function, inst, [ty_ptr])
 			}
 		}
+		.br {
+			if c.expect_operand_count(inst, 0) {
+				c.check_jump_target(function, inst.target, 'V004')
+			}
+		}
+		.condbr {
+			if c.expect_operand_count(inst, 1) {
+				c.expect_operand(function, inst, 0, ty_i1)
+				c.check_jump_target(function, inst.target, 'V004')
+				c.check_jump_target(function, inst.else_target, 'V004')
+			}
+		}
+		.switch {
+			if c.expect_operand_count(inst, 1) {
+				value := c.operand_type(function, inst.operands[0])
+				if value.is_unknown() {
+					c.error('V007', "operand 1 of 'switch' has no type")
+				} else if !value.is_int() {
+					c.error('V007', "operand 1 of 'switch' has type ${value.str()}, expected an integer")
+				}
+				c.check_jump_target(function, inst.target, 'V014')
+				mut seen := []u128{}
+				mut first_case := []int{}
+				for i, case_ in inst.cases {
+					if value.is_int() {
+						if !immediate_fits(case_.value, value.bits) {
+							c.error('V014', "case ${i + 1} of 'switch' does not fit ${value.str()}")
+						}
+						masked := mask_to(value.bits, case_.value)
+						mut repeated := -1
+						for j, earlier in seen {
+							if earlier == masked {
+								repeated = first_case[j]
+								break
+							}
+						}
+						if repeated >= 0 {
+							c.error('V014', "case ${i + 1} of 'switch' repeats case ${repeated + 1}")
+						} else {
+							seen << masked
+							first_case << i
+						}
+					}
+					c.check_jump_target(function, case_.target, 'V014')
+				}
+			}
+		}
+		.@return {
+			c.check_return(function, inst)
+		}
+		.unreachable, .trap {
+			c.expect_operand_count(inst, 0)
+		}
+		.assume {
+			if c.expect_operand_count(inst, 1) {
+				c.expect_operand(function, inst, 0, ty_i1)
+			}
+		}
+		.call, .tailcall {
+			c.check_direct_call(module, function, inst)
+		}
+		.call_indirect, .tailcall_indirect {
+			c.check_indirect_call(function, inst)
+		}
+		.inline_asm {
+			c.check_inline_asm(function, inst)
+		}
 		else {}
 	}
+}
+
+// check_jump_target holds V004 for a br or condbr edge and V014 for a switch
+// edge: the block exists and the jump passes one argument per parameter with the
+// parameter's type.
+fn (mut c VerifyContext) check_jump_target(function &Function, target BlockTarget, code string) {
+	source := if c.block >= 0 && c.block < function.blocks.len {
+		block_name(function, c.block)
+	} else {
+		'the block'
+	}
+	if target.block < 0 || target.block >= function.blocks.len {
+		c.error('V005', 'a jump from ${source} names block ${target.block}, and the function has ${function.blocks.len} blocks')
+		return
+	}
+	destination := block_name(function, target.block)
+	params := function.blocks[target.block].params
+	if target.args.len != params.len {
+		c.error(code, 'the jump from ${source} to ${destination} passes ${target.args.len} arguments, and ${destination} takes ${params.len}')
+		return
+	}
+	for i in 0 .. params.len {
+		mut expected := ty_unknown
+		if params[i] >= 0 && params[i] < function.values.len {
+			expected = function.values[params[i]].typ
+		}
+		c.expect_operand_is(function, target.args[i], expected, code,
+			'argument ${i + 1} of the jump from ${source} to ${destination}')
+	}
+}
+
+fn (mut c VerifyContext) check_return(function &Function, inst Instruction) {
+	results := function.signature.results
+	if inst.operands.len != results.len {
+		c.error('V011', "'return' passes ${value_count_phrase(inst.operands.len)}, and the function returns ${value_count_phrase(results.len)}")
+		return
+	}
+	for i in 0 .. results.len {
+		c.expect_operand_is(function, inst.operands[i], results[i], 'V011',
+			"value ${i + 1} of 'return'")
+	}
+}
+
+fn (mut c VerifyContext) check_direct_call(module &Module, function &Function, inst Instruction) {
+	name := inst.opcode.name()
+	if inst.operands.len == 0 {
+		c.error('V012', "'${name}' has no callee")
+		return
+	}
+	callee := inst.operands[0]
+	if callee.kind != .symbol {
+		c.error('V012', "the callee of '${name}' is not a symbol")
+		return
+	}
+	kind, index := resolve_symbol(module, callee)
+	if kind != .function {
+		c.error('V012', "'${name}' names '@${callee.name}', which is not a declared function")
+		return
+	}
+	signature := module.functions[index].signature
+	args := inst.operands[1..]
+	if args.len != signature.params.len {
+		c.error('V012', "the call to '@${callee.name}' passes ${args.len} arguments, and the declaration takes ${signature.params.len}")
+	}
+	for i in 0 .. args.len {
+		if i >= signature.params.len {
+			break
+		}
+		c.expect_operand_is(function, args[i], signature.params[i], 'V012',
+			"argument ${i + 1} of the call to '@${callee.name}'")
+	}
+	if inst.opcode == .tailcall {
+		c.check_tail_results(signature, function, inst)
+		return
+	}
+	c.check_call_results(function, inst, signature.results, "the call to '@${callee.name}'")
+}
+
+fn (mut c VerifyContext) check_indirect_call(function &Function, inst Instruction) {
+	name := inst.opcode.name()
+	if inst.operands.len == 0 {
+		c.error('V012', "'${name}' has no callee pointer")
+		return
+	}
+	callee := inst.operands[0]
+	if callee.kind != .value {
+		c.error('V007', "operand 1 of '${name}' is not a pointer value, expected ptr")
+	} else {
+		typ := c.operand_type(function, callee)
+		if typ.is_unknown() {
+			c.error('V007', "operand 1 of '${name}' has no type, expected ptr")
+		} else if !typ.is_ptr() {
+			c.error('V007', "operand 1 of '${name}' has type ${typ.str()}, expected ptr")
+		}
+	}
+	signature := inst.signature
+	for i, typ in signature.params {
+		problem := type_problem(typ)
+		if problem != '' {
+			c.error('V012', "parameter ${i + 1} of the signature '${name}' carries has type ${typ.str()}: ${problem}")
+		}
+	}
+	for i, typ in signature.results {
+		problem := type_problem(typ)
+		if problem != '' {
+			c.error('V012', "result ${i + 1} of the signature '${name}' carries has type ${typ.str()}: ${problem}")
+		}
+	}
+	args := inst.operands[1..]
+	if args.len != signature.params.len {
+		c.error('V012', "'${name}' carries ${signature.params.len} parameters, and the call passes ${args.len} arguments")
+	}
+	for i in 0 .. args.len {
+		if i >= signature.params.len {
+			break
+		}
+		c.expect_operand_is(function, args[i], signature.params[i], 'V012',
+			"argument ${i + 1} of '${name}'")
+	}
+	if inst.opcode == .tailcall_indirect {
+		c.check_tail_results(signature, function, inst)
+		return
+	}
+	c.check_call_results(function, inst, signature.results, name)
+}
+
+// check_call_results holds the result side of a call's signature, in the same
+// place for a direct and an indirect call.
+fn (mut c VerifyContext) check_call_results(function &Function, inst Instruction,
+	expected []Type, site string) {
+	if inst.results.len != expected.len {
+		c.error('V012', '${site} returns ${expected.len} results, and ${inst.results.len} are named')
+	}
+	for i in 0 .. inst.results.len {
+		if i >= expected.len {
+			break
+		}
+		index := inst.results[i]
+		if index < 0 || index >= function.values.len {
+			continue
+		}
+		actual := function.values[index].typ
+		if actual.is_unknown() {
+			c.error('V012', 'result ${i + 1} of ${site} has no type, expected ${expected[i].str()}')
+		} else if actual != expected[i] {
+			c.error('V012', 'result ${i + 1} of ${site} has type ${actual.str()}, expected ${expected[i].str()}')
+		}
+	}
+}
+
+// check_tail_results holds V013: the callee's results are the function's, in
+// order, because a tail call replaces the frame rather than returning to it.
+fn (mut c VerifyContext) check_tail_results(signature Signature, function &Function,
+	inst Instruction) {
+	if signature.results == function.signature.results {
+		return
+	}
+	c.error('V013', "'${inst.opcode.name()}' returns ${results_text(signature.results)}, and the function returns ${results_text(function.signature.results)}")
+}
+
+fn results_text(results []Type) string {
+	if results.len == 0 {
+		return 'nothing'
+	}
+	if results.len == 1 {
+		return results[0].str()
+	}
+	return '(${results.map(it.str()).join(', ')})'
+}
+
+fn (mut c VerifyContext) check_inline_asm(function &Function, inst Instruction) {
+	if inst.results.len != inst.asm.outputs.len {
+		c.error('V018', "'inline_asm' has ${inst.results.len} results and declares ${inst.asm.outputs.len} outputs")
+	}
+	for i in 0 .. inst.results.len {
+		if i >= inst.asm.outputs.len {
+			break
+		}
+		index := inst.results[i]
+		if index < 0 || index >= function.values.len {
+			continue
+		}
+		expected := inst.asm.outputs[i].typ
+		problem := type_problem(expected)
+		if problem != '' {
+			c.error('V018', "output ${i + 1} of 'inline_asm' has type ${expected.str()}: ${problem}")
+			continue
+		}
+		actual := function.values[index].typ
+		if actual != expected {
+			c.error('V018', "result ${i + 1} of 'inline_asm' has type ${actual.str()}, and the output is ${expected.str()}")
+		}
+	}
+	for i, input in inst.asm.inputs {
+		if input.constraint == '' {
+			c.error('V018', "input ${i + 1} of 'inline_asm' names no constraint")
+		}
+		if input.value.kind == .int_imm {
+			c.error('V018', "input ${i + 1} of 'inline_asm' is an integer immediate, which has no type")
+		} else if input.value.kind != .value && input.value.kind != .float_imm {
+			c.error('V018', "input ${i + 1} of 'inline_asm' is not a value")
+		}
+	}
+}
+
+fn mask_to(bits u16, value u128) u128 {
+	if bits == 0 || bits >= 128 {
+		return value
+	}
+	return value & ((u128(1) << bits) - 1)
 }
 
 const integer_predicates = ['eq', 'ne', 'slt', 'sle', 'sgt', 'sge', 'ult', 'ule', 'ugt', 'uge']
@@ -751,6 +1028,11 @@ fn (mut c VerifyContext) expect_operand_is(function &Function, operand Operand, 
 	}
 	match operand.kind {
 		.value {
+			if operand.idx < 0 || operand.idx >= function.values.len {
+				// V005 names the index in check_use; a second error here would
+				// repeat it with a worse description.
+				return false
+			}
 			actual := c.operand_type(function, operand)
 			if actual.is_unknown() {
 				c.error(code, '${site} is a value with no type, expected ${expected.str()}')
@@ -1042,6 +1324,14 @@ fn operand_count_phrase(count int) string {
 		2 { 'two operands' }
 		3 { 'three operands' }
 		else { '${count} operands' }
+	}
+}
+
+fn value_count_phrase(count int) string {
+	return match count {
+		0 { 'no values' }
+		1 { 'one value' }
+		else { '${count} values' }
 	}
 }
 
