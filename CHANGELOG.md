@@ -82,3 +82,4 @@ owns the change, which is the same vocabulary the commits use.
 * optimize: the default pipeline (b4d74b1)
 * docs: the changelog for the optimizer's own lines (97279be)
 * optimize: a chain of ten thousand folds and erases (d6551e9)
+* optimize: name the block and instruction when a pass breaks the IR (79349e5)
