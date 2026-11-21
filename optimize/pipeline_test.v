@@ -121,3 +121,20 @@ block0:
 	assert module.functions[1].blocks[0].instructions[0].operands[0].imm == 3
 	assert module.functions[2].blocks[0].instructions[0].operands[0].imm == 16
 }
+
+// A chain long enough that a per-sweep walk and a per-removal walk would both
+// show: every fold feeds the next, and nothing reads the last one.
+fn test_a_chain_of_ten_thousand_folds_and_erases() {
+	steps := 10000
+	mut text := 'fn @f() {\nblock0:\n  %v0 = iconst i32 0\n'
+	for i in 1 .. steps + 1 {
+		text += '  %v${i} = iadd %v${i - 1}, 1\n'
+	}
+	text += '  return\n}\n'
+	mut module := parse_body(text)
+	assert module.functions[0].blocks[0].instructions.len == steps + 1
+	assert optimize_module(mut module)
+	assert_verifies(&module)
+	assert module.functions[0].values.len == 0
+	assert module.functions[0].blocks[0].instructions.len == 0
+}
