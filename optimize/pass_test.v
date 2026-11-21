@@ -127,6 +127,7 @@ fn catch_panic(run fn (), mut caught Caught) {
 fn test_a_pass_that_breaks_the_ir_stops_the_manager() {
 	mut caught := Caught{}
 	catch_panic(run_breaker, mut caught)
-	assert caught.message.contains("pass 'breaker' left @f unverifiable")
-	assert caught.message.contains('V005')
+	assert caught.message.starts_with("optimize: pass 'breaker' left @f"), caught.message
+	assert caught.message.contains('block 0'), caught.message
+	assert caught.message.contains('unverifiable: V005'), caught.message
 }

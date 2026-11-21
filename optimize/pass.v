@@ -73,5 +73,12 @@ fn check_pass(pass Pass, module &ir.Module, function &ir.Function) {
 		return
 	}
 	first := errors[0]
-	panic("optimize: pass '${pass.name}' left @${function.name} unverifiable: ${first.code}: ${first.message}")
+	mut where := ''
+	if block := first.block {
+		where += ' block ${block}'
+	}
+	if inst := first.inst {
+		where += ' instruction ${inst}'
+	}
+	panic("optimize: pass '${pass.name}' left @${function.name}${where} unverifiable: ${first.code}: ${first.message}")
 }
