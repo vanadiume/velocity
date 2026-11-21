@@ -121,6 +121,17 @@ pub fn new_function_signature(name string, sig Signature) Function {
 	return function
 }
 
+// new_global is the frontend's constructor for a global. The type gives the
+// size and the alignment; init is the constant tree, or none for a zero-filled
+// object. The caller sets readonly and public on the value it gets.
+pub fn new_global(name string, typ Type, init ?Const) Global {
+	return Global{
+		name: name
+		typ:  typ
+		init: init
+	}
+}
+
 // new_builder takes the function a frontend is building. The target is what a
 // natural alignment is read from; without one, load and store need the stated
 // alignment.
@@ -620,23 +631,16 @@ fn (mut b Builder) expect(value ValueRef, want Type, site string) {
 }
 
 // natural_align is the alignment a memory operation gets when the frontend does
-// not state one: the largest power of two that divides a scalar's size, and the
-// pointer alignment of a pointer. A width whose byte size is not a power of two,
-// i24 for instance, aligns to a smaller power of two, because every stated
-// alignment has to be one.
+// not state one: the type's own alignment. A pointer needs the target; without
+// one the frontend states the alignment, the same rule a load follows.
 fn (b &Builder) natural_align(typ Type, site string) u16 {
-	if typ.is_ptr() {
+	if typ.has_pointer() {
 		target := b.target or {
-			panic('${site}: the builder has no target, so it cannot choose a natural alignment for a pointer; state the alignment or pass a target to new_builder')
+			panic('${site}: the builder has no target, so it cannot choose a natural alignment for ${typ.str()}; state the alignment or pass a target to new_builder')
 		}
-		return target.pointer_align
+		return u16(typ.align_of(target))
 	}
-	size := typ.size(0)
-	mut align := 1
-	for align * 2 <= size && size % (align * 2) == 0 {
-		align *= 2
-	}
-	return u16(align)
+	return u16(typ.align_natural())
 }
 
 // Flags.

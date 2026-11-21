@@ -317,7 +317,7 @@ pub:
 }
 
 pub struct Global {
-pub:
+pub mut:
 	name     string
 	typ      Type // the size and the alignment come from this type
 	readonly bool
@@ -343,6 +343,41 @@ pub:
 	bits  u128
 	typ   Type
 	elems []Const
+}
+
+// The constructors a frontend uses to build a constant tree.
+pub fn int_const(value u128) Const {
+	return Const{
+		kind: .int
+		bits: value
+	}
+}
+
+pub fn float_const(typ Type, bits u128) Const {
+	return Const{
+		kind: .float
+		bits: bits
+		typ:  typ
+	}
+}
+
+pub fn null_const() Const {
+	return Const{
+		kind: .null
+	}
+}
+
+pub fn zero_const() Const {
+	return Const{
+		kind: .zero
+	}
+}
+
+pub fn seq_const(elems []Const) Const {
+	return Const{
+		kind:  .seq
+		elems: elems
+	}
 }
 
 // find_function_index returns the first declaration or definition of a symbol.

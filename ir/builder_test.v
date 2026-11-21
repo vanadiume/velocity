@@ -1087,3 +1087,64 @@ fn test_a_width_that_is_not_a_power_of_two_aligns_to_one() {
 	assert function.blocks[0].instructions[0].align == 1
 	assert_verified_function(function)
 }
+
+// A frontend builds a global from a type and a constant tree, and a function
+// from a signature that carries effects and noundef. The module the builder
+// assembles verifies, prints, and reads back as the same module.
+fn test_the_builder_builds_a_typed_global_and_a_signature_with_effects() {
+	target := builder_target()
+	mut module := Module{
+		target: target
+	}
+	pair := struct_type([ty_i32, ty_ptr])
+	module.globals << new_global('table', pair, seq_const([int_const(7), null_const()]))
+	module.globals << new_global('zeroed', array_type(ty_i32, 4), none)
+	module.globals << new_global('weights', vector_type(ty_f32, 2), seq_const([
+		float_const(ty_f32, 0x3f800000),
+		float_const(ty_f32, 0x40000000),
+	]))
+	mut limit := new_global('limit', ty_i64, int_const(64))
+	limit.readonly = true
+	module.globals << limit
+
+	sig := signature_with_effects([param(ty_ptr, true), param(ty_i32, false)], [
+		result(ty_i32, true),
+	], effects(.readonly, .nounwind))
+	mut function := new_function_signature('select_limit', sig)
+	mut builder := new_builder(mut function, target)
+	entry := builder.create_entry_block()
+	builder.switch_to_block(entry)
+	loaded := builder.load(builder.param(0), ty_i32)
+	limited := builder.iadd(loaded, builder.param(1))
+	builder.return_([limited])
+	builder.finish()
+	module.functions << function
+
+	text := print_module(&module)
+	assert text.contains('global @table: {i32, ptr} = {7, null}\n'), text
+	assert text.contains('global @zeroed: [4 x i32]\n'), text
+	assert text.contains('global @weights: <2 x f32> = [f32 0x3f800000, f32 0x40000000]\n'), text
+	assert text.contains('fn @select_limit(%arg0: ptr noundef, %arg1: i32) -> i32 noundef readonly nounwind {\n'), text
+	errors := verify_module(&module)
+	assert errors.len == 0, errors.map(it.msg()).join('\n')
+
+	parsed := parse_text(text) or { panic('the printed module does not parse: ${err.msg()}\n${text}') }
+	assert parsed.globals.len == module.globals.len
+	for i, global in parsed.globals {
+		assert global.typ == module.globals[i].typ
+	}
+	table := parsed.globals[0]
+	table_init := table.init or { panic('@table lost its initializer') }
+	assert table_init.elems.len == 2
+	assert table_init.elems[0].bits == u128(7)
+	assert table_init.elems[1].kind == .null
+	weights := parsed.globals[2].init or { panic('@weights lost its initializer') }
+	assert weights.elems[0].typ == ty_f32
+	assert parsed.functions[0].signature.params[0].noundef
+	assert parsed.functions[0].signature.results[0].noundef
+	assert parsed.functions[0].signature.effects.readonly
+	assert parsed.functions[0].signature.effects.nounwind
+	assert parsed.functions[0].signature.effects.readnone == false
+	assert verify_module(&parsed).len == 0
+	assert print_module(&parsed) == text
+}
