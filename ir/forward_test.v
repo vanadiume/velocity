@@ -25,7 +25,7 @@ block0:
   return %arg0
 }
 
-global @later: 8 bytes align 8
+global @later: i64
 '
 }
 

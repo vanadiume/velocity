@@ -1588,8 +1588,8 @@ pub fn (mut b Builder) inline_asm(spec Asm) []ValueRef {
 	}
 	mut results := []Type{cap: spec.outputs.len}
 	for i, output in spec.outputs {
-		if !output.typ.is_scalar() {
-			panic('inline_asm: output ${i + 1} has type ${output.typ.str()}, expected a scalar')
+		if !output.typ.is_scalar() && !output.typ.is_vector() {
+			panic('inline_asm: output ${i + 1} has type ${output.typ.str()}, expected a scalar, a vector or a pointer')
 		}
 		if output.constraint == '' {
 			panic('inline_asm: output ${i + 1} names no constraint')
@@ -1604,7 +1604,10 @@ pub fn (mut b Builder) inline_asm(spec Asm) []ValueRef {
 		if input.constraint == '' {
 			panic('inline_asm: input ${i + 1} names no constraint')
 		}
-		_ = b.value_type(input.value)
+		typ := b.value_type(input.value)
+		if typ.is_struct() || typ.is_array() {
+			panic('inline_asm: input ${i + 1} has type ${typ.str()}, and an aggregate is never an asm operand')
+		}
 		inst.asm.inputs << InlineAsmInput{
 			value:      b.operand(input.value)
 			constraint: input.constraint

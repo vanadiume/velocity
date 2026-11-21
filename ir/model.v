@@ -182,11 +182,30 @@ pub:
 pub struct Global {
 pub:
 	name     string
-	size     u64
-	align    u16
+	typ      Type // the size and the alignment come from this type
 	readonly bool
 	public   bool
-	init     []u8 // shorter than size means zero fill
+	init     ?Const // absent means zero-filled
+}
+
+pub enum ConstKind {
+	zero
+	int
+	float
+	null
+	seq
+}
+
+// Const is a global's initializer: the typed constant tree from ir-model.md.
+// bits carries an integer value or a float's bit pattern, typ is the type a
+// float leaf states, and elems is a struct's fields, an array's elements or a
+// vector's lanes. zero stands for every zero leaf at once, at any depth.
+pub struct Const {
+pub:
+	kind  ConstKind
+	bits  u128
+	typ   Type
+	elems []Const
 }
 
 // find_function_index returns the first declaration or definition of a symbol.

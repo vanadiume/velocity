@@ -41,6 +41,25 @@ block0:
 ')
 }
 
+// A global's initializer is a constant tree of its type: every leaf form, a
+// nested aggregate, and zeroinit at any depth.
+fn test_every_global_initializer_form_verifies() {
+	assert_verified('target 64 little 8
+pub global @counter: i64 = 1
+global @negative: i32 = -1
+global @zero: i32 = 0
+global @pi: f32 = f32 0x40490fdb
+global @nowhere: ptr = null
+global @zeroed: [4 x i32] = zeroinit
+global @pair: {i32, i64} = {7, 8}
+global @nested: {i32, [2 x i8]} = {1, [2, 3]}
+global @weights: <4 x f32> = [f32 0x3f800000, f32 0x40000000, f32 0x40400000, f32 0x40800000]
+global @bytes: [4 x i8] = [1, 2, 3, 255]
+global @plain: [2 x i16]
+')
+}
+
+// A declaration alone verifies.
 fn test_a_declaration_alone_verifies() {
 	assert_verified('target 32 big 4
 extern fn @puts(%arg0: ptr) -> i32
@@ -70,7 +89,7 @@ block0:
 
 fn test_two_runs_report_the_same_list() {
 	module := parse_text('target 48 little 3
-global @g: 2 bytes align 8 init 0x00112233
+global @g: i8 = 300
 fn @f(%arg0: i32) -> i64 {
 block0:
   return %arg0
@@ -297,6 +316,18 @@ fn test_inline_asm_with_an_output_verifies() {
 fn @read_tsc() -> i64 {
 block0:
   %v0 = inline_asm "rdtsc" out(i64, "=A")
+  return %v0
+}
+')
+}
+
+// A vector is a register-sized operand; an aggregate is not, because a
+// constraint cannot name one.
+fn test_inline_asm_accepts_a_vector_output() {
+	assert_verified('target 64 little 8
+fn @vec_asm(%arg0: <2 x i32>) -> <2 x i32> {
+block0:
+  %v0 = inline_asm "nop" out(<2 x i32>, "=x") in(%arg0, "x")
   return %v0
 }
 ')

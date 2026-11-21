@@ -135,6 +135,18 @@ fn tokenize(text string) ![]Token {
 			`}` {
 				tokens << t.punct('}')
 			}
+			`[` {
+				tokens << t.punct('[')
+			}
+			`]` {
+				tokens << t.punct(']')
+			}
+			`<` {
+				tokens << t.punct('<')
+			}
+			`>` {
+				tokens << t.punct('>')
+			}
 			`=` {
 				tokens << t.punct('=')
 			}

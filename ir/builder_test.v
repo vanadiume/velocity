@@ -402,9 +402,8 @@ fn test_the_address_of_a_global_and_a_function_verify() {
 		]
 		globals:   [
 			Global{
-				name:  'data'
-				size:  8
-				align: 8
+				name: 'data'
+				typ:  ty_i64
 			},
 		]
 	}
@@ -1029,9 +1028,8 @@ fn build_every_opcode() Module {
 		signature: callee
 	}
 	module.globals << Global{
-		name:  'data'
-		size:  8
-		align: 8
+		name: 'data'
+		typ:  ty_i64
 	}
 	return module
 }

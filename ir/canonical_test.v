@@ -22,32 +22,57 @@ fn test_target_line() {
 	assert m.target.endian == .little
 }
 
-fn test_globals_keep_their_order_and_bytes() {
+fn test_globals_keep_their_order_and_their_initializers() {
 	m := load_canonical()
-	assert m.globals.len == 4
+	assert m.globals.len == 8
 	counter := m.globals[0]
 	assert counter.name == 'counter'
-	assert counter.size == 8
-	assert counter.align == 8
+	assert counter.typ == ty_i64
+	assert counter.typ.size(64) == 8
+	assert counter.typ.align_natural() == 8
 	assert counter.public
 	assert counter.readonly == false
-	assert counter.init == [u8(0), 0, 0, 0, 0, 0, 0, 1]
+	counter_init := counter.init or { panic('counter has no initializer') }
+	assert counter_init.kind == .int
+	assert counter_init.bits == u128(1)
 	message := m.globals[1]
-	assert message.name == 'message'
-	assert message.size == 16
-	assert message.align == 16
+	assert message.typ == array_type(ty_i8, 16)
+	assert message.typ.size(64) == 16
 	assert message.readonly
 	assert message.public == false
-	assert message.init.len == 16
-	assert message.init[0] == u8(`h`)
-	assert message.init[4] == u8(`o`)
-	scratch := m.globals[2]
-	assert scratch.size == 4096
-	assert scratch.init.len == 0
-	// The fourth global. A module keeps its globals apart from its functions,
-	// so the printer writes every global before the first function, and the
-	// fixture is in the order the printer writes.
-	assert m.globals[3].name == 'late_global'
+	bytes := message.init or { panic('message has no initializer') }
+	assert bytes.kind == .seq
+	assert bytes.elems.len == 16
+	assert bytes.elems[0].bits == u128(`h`)
+	assert bytes.elems[4].bits == u128(`o`)
+	origin := m.globals[2]
+	assert origin.typ == struct_type([ty_i32, ty_i32])
+	assert origin.typ.size(64) == 8
+	origin_init := origin.init or { panic('origin has no initializer') }
+	assert origin_init.kind == .seq
+	assert origin_init.elems.len == 2
+	weights := m.globals[3]
+	assert weights.typ == vector_type(ty_f32, 4)
+	assert weights.typ.size(64) == 16
+	weights_init := weights.init or { panic('weights has no initializer') }
+	assert weights_init.elems[0].kind == .float
+	assert weights_init.elems[0].typ == ty_f32
+	assert weights_init.elems[0].bits == u128(0x3f800000)
+	anchor := m.globals[4]
+	assert anchor.typ == ty_ptr
+	assert (anchor.init or { panic('anchor has no initializer') }).kind == .null
+	blank := m.globals[5]
+	assert blank.typ == array_type(ty_i32, 4)
+	assert (blank.init or { panic('blank has no initializer') }).kind == .zero
+	scratch := m.globals[6]
+	assert scratch.typ == array_type(ty_i8, 4096)
+	assert scratch.typ.size(64) == 4096
+	assert scratch.init == none
+	// The last global. A module keeps its globals apart from its functions, so
+	// the printer writes every global before the first function, and the fixture
+	// is in the order the printer writes.
+	assert m.globals[7].name == 'late_global'
+	assert m.globals[7].typ == ty_i64
 }
 
 fn test_functions_keep_their_order() {

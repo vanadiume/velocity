@@ -1,6 +1,6 @@
 target 64 little 8
 
-global @g: 8 bytes align 8
+global @g: i64
 
 extern fn @callee(%arg0: i32) -> i32
 

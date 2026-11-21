@@ -95,3 +95,60 @@ fn test_type_kinds() {
 	assert ty_unknown.is_unknown()
 	assert ty_unknown.is_scalar() == false
 }
+
+// The three aggregate forms print in full and lay out by ir-types.md: fields
+// at their own alignment, the size rounded up to the struct's, an array by its
+// element, and a vector aligned to its size rounded up to a power of two.
+fn test_aggregate_types_print_and_lay_out() {
+	pair := struct_type([ty_i32, ty_i8])
+	assert pair.str() == '{i32, i8}'
+	assert pair.size(64) == 8
+	assert pair.align_natural() == 4
+
+	row := array_type(ty_f32, 4)
+	assert row.str() == '[4 x f32]'
+	assert row.size(64) == 16
+	assert row.align_natural() == 4
+
+	lanes := vector_type(ty_i16, 8)
+	assert lanes.str() == '<8 x i16>'
+	assert lanes.size(64) == 16
+	assert lanes.align_natural() == 16
+
+	nested := struct_type([ty_ptr, array_type(ty_i32, 4)])
+	assert nested.str() == '{ptr, [4 x i32]}'
+	assert nested.size(64) == 24
+	assert nested.align_natural() == 8
+
+	// i24 is three bytes and aligns to one, so the struct's size is the sum
+	// rounded to the largest field alignment, which is still one.
+	odd := struct_type([int_type(24), ty_i8])
+	assert odd.size(64) == 4
+	assert odd.align_natural() == 1
+
+	// A 32-bit target lays a pointer out at four bytes and four-byte alignment.
+	small := struct_type([ty_i8, ty_ptr])
+	assert small.size_for(TargetInfo{
+		pointer_width: 32
+		pointer_align: 4
+		endian:        .little
+	}) == 8
+	assert small.align_of(TargetInfo{
+		pointer_width: 32
+		pointer_align: 4
+		endian:        .little
+	}) == 4
+}
+
+fn test_aggregate_memory_types() {
+	assert struct_type([ty_i32, ty_i8]).is_memory()
+	assert struct_type([ty_i1]).is_memory() == false
+	assert array_type(ty_i32, 4).is_memory()
+	assert array_type(ty_i1, 4).is_memory() == false
+	assert vector_type(ty_f32, 4).is_memory()
+	assert vector_type(ty_ptr, 2).is_memory()
+	assert struct_type([ty_i32]).is_aggregate()
+	assert vector_type(ty_i32, 4).is_aggregate()
+	assert array_type(ty_i32, 4).is_aggregate()
+	assert ty_i32.is_aggregate() == false
+}

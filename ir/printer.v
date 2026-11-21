@@ -39,15 +39,53 @@ fn print_global(global &Global) string {
 	if global.public {
 		out.write_string('pub ')
 	}
-	out.write_string('global @${global.name}: ${global.size} bytes align ${global.align}')
+	out.write_string('global @${global.name}: ${global.typ.str()}')
 	if global.readonly {
 		out.write_string(' readonly')
 	}
-	if global.init.len > 0 {
-		out.write_string(' init 0x')
-		out.write_string(hex_bytes(global.init))
+	if init := global.init {
+		out.write_string(' = ${const_text(init, global.typ)}')
 	}
 	return out.str()
+}
+
+// const_text writes a global's initializer with the type that gives each leaf
+// its width and its bracket. zeroinit prints as itself and never expands, which
+// is what keeps a 4096-byte zero-filled tree out of the text.
+fn const_text(value Const, typ Type) string {
+	match value.kind {
+		.zero {
+			return 'zeroinit'
+		}
+		.null {
+			return 'null'
+		}
+		.int {
+			bits := if typ.is_int() { typ.bits } else { u16(128) }
+			return '${mask_to(bits, value.bits)}'
+		}
+		.float {
+			return '${value.typ.str()} 0x${bit_pattern(value.bits, value.typ)}'
+		}
+		.seq {
+			object := typ.is_struct()
+			mut out := strings.new_builder(32)
+			out.write_string(if object { '{' } else { '[' })
+			for i, elem in value.elems {
+				if i > 0 {
+					out.write_string(', ')
+				}
+				elem_type := if object {
+					typ.field(i)
+				} else {
+					typ.elem()
+				}
+				out.write_string(const_text(elem, elem_type))
+			}
+			out.write_string(if object { '}' } else { ']' })
+			return out.str()
+		}
+	}
 }
 
 // Printer holds the state one function needs: the name each value printed
@@ -454,14 +492,6 @@ fn bit_pattern(bits u128, typ Type) string {
 		return text
 	}
 	return strings.repeat_string('0', digits - text.len) + text
-}
-
-fn hex_bytes(bytes []u8) string {
-	mut out := strings.new_builder(bytes.len * 2)
-	for byte in bytes {
-		out.write_string('${byte:02x}')
-	}
-	return out.str()
 }
 
 // quote_text writes a string with the escapes ir-text.md defines and no others,

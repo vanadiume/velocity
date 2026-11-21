@@ -163,18 +163,7 @@ fn check_module(m &Module) []VerifyError {
 			}
 		}
 		global_names[global.name] = true
-		if global.init.len > int(global.size) {
-			errors << VerifyError{
-				code:    'V021'
-				message: "the initializer for '@${global.name}' is ${global.init.len} bytes and the global is ${global.size} bytes"
-			}
-		}
-		if !is_power_of_two(int(global.align)) {
-			errors << VerifyError{
-				code:    'V010'
-				message: "global '@${global.name}' has align ${global.align}, expected a power of two greater than zero"
-			}
-		}
+		errors << check_global(global, m.target)
 	}
 	mut declarations := map[string]int{}
 	mut definitions := map[string]int{}
@@ -245,6 +234,132 @@ fn signature_text(signature Signature) string {
 		else { ' -> (${signature.results.map(it.str()).join(', ')})' }
 	}
 	return '(${params})${results}'
+}
+
+// check_global holds what a global states: a type the model has (V023), a type
+// a byte range can hold (V015), and an initializer whose shape and widths match
+// that type (V033). The size and the alignment are not checked because they are
+// not stored: both come from the type.
+fn check_global(global Global, target TargetInfo) []VerifyError {
+	mut errors := []VerifyError{}
+	problem := type_problem(global.typ)
+	if problem != '' {
+		errors << VerifyError{
+			code:    'V023'
+			message: "global '@${global.name}' has type ${global.typ.str()}: ${problem}"
+		}
+	} else if !global.typ.is_memory() {
+		errors << VerifyError{
+			code:    'V015'
+			message: "global '@${global.name}' has type ${global.typ.str()}, expected a memory type"
+		}
+	}
+	if init := global.init {
+		check_const(mut errors, init, global.typ, "the initializer for '@${global.name}'")
+	}
+	if problem == '' && global.typ.size_for(target) <= 0 {
+		errors << VerifyError{
+			code:    'V023'
+			message: "global '@${global.name}' has type ${global.typ.str()}, whose size does not fit the address space"
+		}
+	}
+	return errors
+}
+
+// check_const walks a global's constant tree with the type that gives each leaf
+// its width and each list its length. A leaf that does not match is reported
+// with the path that reached it, so a deep tree names the field or element.
+fn check_const(mut errors []VerifyError, value Const, typ Type, site string) {
+	if value.kind == .zero || typ.is_unknown() {
+		return
+	}
+	match typ.kind {
+		.int {
+			if value.kind != .int {
+				errors << const_error(site, value, 'an integer leaf')
+				return
+			}
+			if !immediate_fits(value.bits, typ.bits) {
+				errors << VerifyError{
+					code:    'V033'
+					message: '${site} has a value that does not fit ${typ.str()}'
+				}
+			}
+		}
+		.float {
+			if value.kind != .float {
+				errors << const_error(site, value, 'a float leaf')
+				return
+			}
+			if value.typ != typ {
+				errors << VerifyError{
+					code:    'V033'
+					message: '${site} is written ${value.typ.str()}, expected ${typ.str()}'
+				}
+			}
+		}
+		.ptr {
+			if value.kind != .null {
+				errors << const_error(site, value, 'null')
+			}
+		}
+		.struct_ {
+			if value.kind != .seq {
+				errors << const_error(site, value, 'a struct initializer')
+				return
+			}
+			if value.elems.len != typ.elems.len {
+				errors << VerifyError{
+					code:    'V033'
+					message: '${site} has ${value.elems.len} leaves and ${typ.str()} has ${typ.elems.len} fields'
+				}
+				return
+			}
+			for i, elem in value.elems {
+				check_const(mut errors, elem, typ.field(i), '${site} field ${i + 1}')
+			}
+		}
+		.array, .vector {
+			if value.kind != .seq {
+				errors << const_error(site, value, if typ.is_array() {
+					'an array initializer'
+				} else {
+					'a vector initializer'
+				})
+				return
+			}
+			if value.elems.len != typ.count {
+				what := if typ.is_array() { 'elements' } else { 'lanes' }
+				errors << VerifyError{
+					code:    'V033'
+					message: '${site} has ${value.elems.len} leaves and ${typ.str()} has ${typ.count} ${what}'
+				}
+				return
+			}
+			for i, elem in value.elems {
+				what := if typ.is_array() { 'element' } else { 'lane' }
+				check_const(mut errors, elem, typ.elem(), '${site} ${what} ${i + 1}')
+			}
+		}
+		.unknown {}
+	}
+}
+
+fn const_error(site string, value Const, expected string) VerifyError {
+	return VerifyError{
+		code:    'V033'
+		message: '${site} is ${const_kind_text(value.kind)}, expected ${expected}'
+	}
+}
+
+fn const_kind_text(kind ConstKind) string {
+	return match kind {
+		.zero { 'zeroinit' }
+		.int { 'an integer' }
+		.float { 'a float' }
+		.null { 'null' }
+		.seq { 'a list' }
+	}
 }
 
 // check_signature refuses a type that the type model does not have. The parser
@@ -590,9 +705,13 @@ fn (mut c VerifyContext) check_opcode(module &Module, function &Function, inst I
 					c.error('V007', "operand 1 of 'bitcast' has no type")
 				} else if from.is_ptr() {
 					c.error('V007', "'bitcast' does not accept a pointer operand; use ptrtoint")
+				} else if from.is_struct() || from.is_array() {
+					c.error('V007', "'bitcast' does not accept a struct or an array")
 				} else if c.check_type_valid(inst, to, 'the result') {
 					if to.is_ptr() {
 						c.error('V007', "'bitcast' does not accept a pointer result; use inttoptr")
+					} else if to.is_struct() || to.is_array() {
+						c.error('V007', "'bitcast' does not accept a struct or an array")
 					} else if from.bit_size(module.target.pointer_width) != to.bit_size(module.target.pointer_width) {
 						c.error('V007', "'bitcast' from ${from.str()} to ${to.str()}, expected equal bit widths")
 					}
@@ -950,6 +1069,10 @@ fn (mut c VerifyContext) check_inline_asm(function &Function, inst Instruction) 
 			c.error('V018', "output ${i + 1} of 'inline_asm' has type ${expected.str()}: ${problem}")
 			continue
 		}
+		if expected.is_struct() || expected.is_array() {
+			c.error('V018', "output ${i + 1} of 'inline_asm' has type ${expected.str()}, and an aggregate is never an asm operand")
+			continue
+		}
 		actual := function.values[index].typ
 		if actual != expected {
 			c.error('V018', "result ${i + 1} of 'inline_asm' has type ${actual.str()}, and the output is ${expected.str()}")
@@ -963,6 +1086,11 @@ fn (mut c VerifyContext) check_inline_asm(function &Function, inst Instruction) 
 			c.error('V018', "input ${i + 1} of 'inline_asm' is an integer immediate, which has no type")
 		} else if input.value.kind != .value && input.value.kind != .float_imm {
 			c.error('V018', "input ${i + 1} of 'inline_asm' is not a value")
+		} else if input.value.kind == .value {
+			typ := c.operand_type(function, input.value)
+			if typ.is_struct() || typ.is_array() {
+				c.error('V018', "input ${i + 1} of 'inline_asm' has type ${typ.str()}, and an aggregate is never an asm operand")
+			}
 		}
 	}
 }
@@ -1634,12 +1762,16 @@ fn kind_text(kind TypeKind) string {
 		.int { 'an integer' }
 		.float { 'a float' }
 		.ptr { 'a pointer' }
+		.struct_ { 'a struct' }
+		.array { 'an array' }
+		.vector { 'a vector' }
 		.unknown { 'a type' }
 	}
 }
 
 // type_problem says what is wrong with a type the model states, or an empty
-// string when it is one of the types in ir-types.md.
+// string when it is one of the types in ir-types.md. An aggregate carries the
+// problem of the field or the element that has one.
 fn type_problem(typ Type) string {
 	return match typ.kind {
 		.int {
@@ -1655,6 +1787,47 @@ fn type_problem(typ Type) string {
 		.ptr {
 			if typ.bits != 0 { 'a pointer type carries no width' } else { '' }
 		}
+		.struct_ {
+			if typ.elems.len == 0 {
+				'a struct has at least one field'
+			} else {
+				struct_problem(typ)
+			}
+		}
+		.array {
+			if typ.count < 1 {
+				'an array has at least one element'
+			} else {
+				element_problem(typ)
+			}
+		}
+		.vector {
+			if typ.count < 1 {
+				'a vector has at least one lane'
+			} else if typ.elem().is_aggregate() {
+				'a vector element is an integer, a float or a pointer'
+			} else {
+				element_problem(typ)
+			}
+		}
 		.unknown { 'the type is not stated' }
 	}
+}
+
+fn struct_problem(typ Type) string {
+	for i, field in typ.elems {
+		problem := type_problem(field)
+		if problem != '' {
+			return 'field ${i + 1}: ${problem}'
+		}
+	}
+	return ''
+}
+
+fn element_problem(typ Type) string {
+	problem := type_problem(typ.elem())
+	if problem != '' {
+		return 'the element: ${problem}'
+	}
+	return ''
 }

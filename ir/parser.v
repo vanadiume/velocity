@@ -178,14 +178,67 @@ fn (mut p Parser) expect_string() !Token {
 	return p.advance()
 }
 
+// expect_type reads one type. A scalar is one token; a struct, an array and a
+// vector are the bracketed forms from ir-text.md, nested as deep as written.
 fn (mut p Parser) expect_type() !Type {
 	token := p.peek()
+	if token.kind == .punct {
+		match token.text {
+			'{' { return p.parse_struct_type() }
+			'[' { return p.parse_array_type() }
+			'<' { return p.parse_vector_type() }
+			else {}
+		}
+	}
 	if token.kind != .ident {
 		return p.fail(token, 'expected a type, found ${describe(token)}')
 	}
 	typ := type_from_text(token.text) or { return p.fail(token, err.msg()) }
 	p.advance()
 	return typ
+}
+
+fn (mut p Parser) parse_struct_type() !Type {
+	p.expect_punct('{')!
+	mut fields := []Type{}
+	if !p.at_punct('}') {
+		for {
+			fields << p.expect_type()!
+			if p.at_punct(',') {
+				p.advance()
+				continue
+			}
+			break
+		}
+	}
+	p.expect_punct('}')!
+	return struct_type(fields)
+}
+
+fn (mut p Parser) parse_array_type() !Type {
+	p.expect_punct('[')!
+	count := p.parse_type_count()!
+	p.expect_ident('x')!
+	elem := p.expect_type()!
+	p.expect_punct(']')!
+	return array_type(elem, count)
+}
+
+fn (mut p Parser) parse_vector_type() !Type {
+	p.expect_punct('<')!
+	count := p.parse_type_count()!
+	p.expect_ident('x')!
+	elem := p.expect_type()!
+	p.expect_punct('>')!
+	return vector_type(elem, count)
+}
+
+fn (mut p Parser) parse_type_count() !int {
+	token := p.expect_number()!
+	if token.negative || token.num > u128(9223372036854775807) {
+		return p.fail(token, 'a count does not fit in an integer')
+	}
+	return int(token.num)
 }
 
 fn (mut p Parser) expect_eol(context string) ! {
@@ -283,58 +336,112 @@ fn (mut p Parser) parse_global(public bool) !Global {
 	p.expect_ident('global')!
 	name := p.expect_symbol()!
 	p.expect_punct(':')!
-	size := p.expect_number()!
-	if size.num > u128(18446744073709551615) {
-		return p.fail(size, 'global size does not fit in 64 bits')
-	}
-	p.expect_ident('bytes')!
-	p.expect_ident('align')!
-	align := p.expect_number()!
-	if align.num > 65535 {
-		return p.fail(align, 'global alignment does not fit in 16 bits')
-	}
+	typ := p.expect_type()!
 	mut readonly := false
 	if p.at_ident('readonly') {
 		p.advance()
 		readonly = true
 	}
-	mut init := []u8{}
-	if p.at_ident('init') {
+	mut init := ?Const(none)
+	if p.at_punct('=') {
 		p.advance()
-		token := p.peek()
-		if token.kind != .number || !token.hex || token.negative {
-			return p.fail(token, "expected an unsigned hex initializer after 'init', found ${describe(token)}")
-		}
-		init = decode_hex_bytes(token)!
-		p.advance()
+		value := p.parse_const()!
+		init = value
 	}
 	p.expect_eol('the global')!
 	return Global{
 		name:     name.text
-		size:     u64(size.num)
-		align:    u16(align.num)
+		typ:      typ
 		readonly: readonly
 		public:   public
 		init:     init
 	}
 }
 
-// decode_hex_bytes turns the digit string of a hex literal into the bytes a
-// global starts with. Each pair of digits is one byte, in the order written.
-fn decode_hex_bytes(token Token) ![]u8 {
-	digits := token.text
-	if digits.len % 2 != 0 {
-		return ParseError{
-			line:    token.line
-			col:     token.col
-			message: 'a global initializer needs an even number of hex digits'
+// parse_const reads a global's initializer: an integer, a float with its stated
+// type and hex bit pattern, null, zeroinit, or a bracketed list of constants.
+// It checks the leaf's syntax and not the tree's type; V033 compares the tree
+// with the global's type.
+fn (mut p Parser) parse_const() !Const {
+	token := p.peek()
+	match token.kind {
+		.number {
+			p.advance()
+			return Const{
+				kind: .int
+				bits: token.num
+			}
+		}
+		.ident {
+			match token.text {
+				'null' {
+					p.advance()
+					return Const{
+						kind: .null
+					}
+				}
+				'zeroinit' {
+					p.advance()
+					return Const{
+						kind: .zero
+					}
+				}
+				'f16', 'f32', 'f64', 'f128' {
+					return p.parse_float_const(token)!
+				}
+				else {
+					return p.fail(token, 'expected a constant, found ${describe(token)}')
+				}
+			}
+		}
+		.punct {
+			if token.text == '{' || token.text == '[' {
+				return p.parse_const_list()!
+			}
+		}
+		else {}
+	}
+	return p.fail(token, 'expected a constant, found ${describe(token)}')
+}
+
+fn (mut p Parser) parse_float_const(type_token Token) !Const {
+	typ := type_from_text(type_token.text)!
+	p.advance()
+	token := p.peek()
+	if token.kind != .number || !token.hex || token.negative {
+		return p.fail(token, "expected a hex bit pattern after '${type_token.text}', found ${describe(token)}")
+	}
+	if token.text.len > int(typ.bits) / 4 {
+		return p.fail(token, 'the bit pattern for ${type_token.text} has more than ${int(typ.bits) / 4} hex digits')
+	}
+	p.advance()
+	return Const{
+		kind: .float
+		bits: token.num
+		typ:  typ
+	}
+}
+
+fn (mut p Parser) parse_const_list() !Const {
+	open := p.peek().text
+	close := if open == '{' { '}' } else { ']' }
+	p.advance()
+	mut elems := []Const{}
+	if !p.at_punct(close) {
+		for {
+			elems << p.parse_const()!
+			if p.at_punct(',') {
+				p.advance()
+				continue
+			}
+			break
 		}
 	}
-	mut bytes := []u8{cap: digits.len / 2}
-	for i := 0; i < digits.len; i += 2 {
-		bytes << hex_digit_value(digits[i]) * 16 + hex_digit_value(digits[i + 1])
+	p.expect_punct(close)!
+	return Const{
+		kind:  .seq
+		elems: elems
 	}
-	return bytes
 }
 
 fn (mut p Parser) parse_function(public bool, external bool) !Function {

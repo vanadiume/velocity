@@ -1,6 +1,6 @@
 target 64 little 8
 
-global @wide_data: 16 bytes align 16 init 0x00000000000000000000000000000000
+global @wide_data: i128
 
 extern fn @identity_wide(%arg0: i64) -> i64
 

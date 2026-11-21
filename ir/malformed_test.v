@@ -60,6 +60,12 @@ fn bad_cases() []BadText {
 		BadText{'conversion without a target type', prelude + '  %v0 = zext %arg0 f64\n  return %v0\n}\n', 4, 20, "expected 'to'"},
 		BadText{'wrong result count', prelude + '  %v0 = sadd_overflow %arg0, %arg0\n  return %arg0\n}\n', 4, 9, 'takes two results, found 1'},
 		BadText{'direct call arity', 'target 64 little 8\nfn @g() -> (i32, i32) {\nblock0:\n  return\n}\nfn @f() {\nblock0:\n  %v0 = call @g()\n  return\n}\n', 8, 14, 'returns 2 results, found 1'},
+		BadText{'global without an initializer', 'target 64 little 8\nglobal @g: i32 =\n', 2, 17, 'expected a constant'},
+		BadText{'float leaf with a long pattern', 'target 64 little 8\nglobal @g: f32 = f32 0x3fc00000ff\n', 2, 22, 'has more than 8 hex digits'},
+		BadText{'float leaf without a hex pattern', 'target 64 little 8\nglobal @g: f32 = f32 12\n', 2, 22, 'expected a hex bit pattern'},
+		BadText{'array type without a closing bracket', 'target 64 little 8\nglobal @g: [4 x i32 = zeroinit\n', 2, 21, "expected ']'"},
+		BadText{'unterminated constant list', 'target 64 little 8\nglobal @g: [2 x i32] = [1, 2\n', 2, 29, "expected ']'"},
+		BadText{'unknown constant', 'target 64 little 8\nglobal @g: i32 = true\n', 2, 18, 'expected a constant'},
 	]
 }
 

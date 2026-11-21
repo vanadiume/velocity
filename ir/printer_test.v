@@ -133,9 +133,8 @@ fn build_print_module() Module {
 		signature: callee
 	}
 	module.globals << Global{
-		name:  'data'
-		size:  8
-		align: 8
+		name: 'data'
+		typ:  ty_i64
 	}
 	return module
 }
@@ -404,6 +403,38 @@ block0:
 '
 	normalized := print_module(parse_text(flag_spelling) or { panic('${err.msg()}') })
 	assert normalized.contains('inline_asm "nop" out(i64, "=r") in(%arg0, "0") volatile\n'), normalized
+}
+
+// A global prints its type and its constant tree on one line, and a tree that a
+// person wrote in the canonical form reads back byte for byte.
+fn test_a_global_prints_its_type_and_its_constant_tree() {
+	text := 'target 32 big 4
+
+pub global @origin: {i32, [2 x i8]} = {4294967295, [7, 255]}
+
+global @weights: <2 x f64> = [f64 0x3ff0000000000000, f64 0x0000000000000000]
+
+global @nothing: ptr = null
+
+global @blank: [1000000 x i32] = zeroinit
+
+global @big: i128 = 340282366920938463463374607431768211455
+
+global @plain: i24
+'
+	printed := print_module(parse_text(text) or { panic('${err.msg()}') })
+	assert printed == text, printed
+}
+
+// A global's type may nest the three aggregate forms, and the text form writes
+// the structure out in full.
+fn test_a_global_type_parses_and_prints_back() {
+	text := 'target 64 little 8
+
+global @nested: {ptr, [4 x <8 x i16>]} = zeroinit
+'
+	printed := print_module(parse_text(text) or { panic('${err.msg()}') })
+	assert printed == text, printed
 }
 
 fn test_declarations_are_separated_by_one_blank_line_and_the_file_ends_once() {

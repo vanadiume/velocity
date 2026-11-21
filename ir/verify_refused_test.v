@@ -47,14 +47,7 @@ block1:
 		fragment: 'cannot be a jump target'
 	},
 	Refusal{
-		text:     'target 64 little 8
-global @g: 8 bytes align 8
-
-fn @g() {
-block0:
-  return
-}
-'
+		text:     'target 64 little 8\nglobal @g: i64\n\nfn @g() {\nblock0:\n  return\n}\n'
 		code:     'V020'
 		fragment: 'both a function and a global'
 	},
@@ -86,11 +79,49 @@ block0:
 		fragment: 'is declared (i32) -> i32'
 	},
 	Refusal{
-		text:     'target 64 little 8
-global @g: 2 bytes align 8 init 0x00112233
-'
-		code:     'V021'
-		fragment: 'the global is 2 bytes'
+		text:     'target 64 little 8\nglobal @g: [4 x i32] = [1, 2]\n'
+		code:     'V033'
+		fragment: 'has 2 leaves and [4 x i32] has 4 elements'
+	},
+	Refusal{
+		text:     'target 64 little 8\nglobal @g: {i32, i8} = {1}\n'
+		code:     'V033'
+		fragment: 'has 1 leaves and {i32, i8} has 2 fields'
+	},
+	Refusal{
+		text:     'target 64 little 8\nglobal @g: i8 = 300\n'
+		code:     'V033'
+		fragment: 'does not fit i8'
+	},
+	Refusal{
+		text:     'target 64 little 8\nglobal @g: f64 = f32 0x3fc00000\n'
+		code:     'V033'
+		fragment: 'is written f32, expected f64'
+	},
+	Refusal{
+		text:     'target 64 little 8\nglobal @g: i64 = null\n'
+		code:     'V033'
+		fragment: 'is null, expected an integer leaf'
+	},
+	Refusal{
+		text:     'target 64 little 8\nglobal @g: {}\n'
+		code:     'V023'
+		fragment: 'a struct has at least one field'
+	},
+	Refusal{
+		text:     'target 64 little 8\nglobal @g: [0 x i32]\n'
+		code:     'V023'
+		fragment: 'an array has at least one element'
+	},
+	Refusal{
+		text:     'target 64 little 8\nglobal @g: <4 x {i32}>\n'
+		code:     'V023'
+		fragment: 'a vector element is an integer, a float or a pointer'
+	},
+	Refusal{
+		text:     'target 64 little 8\nglobal @g: i1\n'
+		code:     'V015'
+		fragment: 'expected a memory type'
 	},
 	Refusal{
 		text:     'target 64 little 8
@@ -102,13 +133,6 @@ block0:
 '
 		code:     'V021'
 		fragment: "stack slot 'slot0' has size 0"
-	},
-	Refusal{
-		text:     'target 64 little 8
-global @g: 8 bytes align 3
-'
-		code:     'V010'
-		fragment: "global '@g' has align 3"
 	},
 	Refusal{
 		text:     'target 64 little 8
@@ -366,6 +390,16 @@ block0:
 '
 		code:     'V018'
 		fragment: 'names no constraint'
+	},
+	Refusal{
+		text:     'target 64 little 8\nfn @f(%arg0: i32) -> i32 {\nblock0:\n  %v0 = inline_asm "nop" out({i32}, "=r") in(%arg0, "r")\n  return %arg0\n}\n'
+		code:     'V018'
+		fragment: 'an aggregate is never an asm operand'
+	},
+	Refusal{
+		text:     'target 64 little 8\nfn @f(%arg0: {i32}) -> i32 {\nblock0:\n  %v0 = inline_asm "nop" out(i32, "=r") in(%arg0, "r")\n  return %v0\n}\n'
+		code:     'V018'
+		fragment: 'an aggregate is never an asm operand'
 	},
 ]
 
@@ -652,8 +686,9 @@ fn test_the_corpus_covers_every_code() {
 		}
 	}
 	codes := ['V001', 'V002', 'V003', 'V004', 'V005', 'V006', 'V007', 'V008', 'V009', 'V010', 'V011',
-		'V012', 'V013', 'V014', 'V015', 'V016', 'V017', 'V018', 'V019', 'V020', 'V021', 'V022']
-	assert codes.len == 22
+		'V012', 'V013', 'V014', 'V015', 'V016', 'V017', 'V018', 'V019', 'V020', 'V021', 'V022',
+		'V023', 'V033']
+	assert codes.len == 24
 	for code in codes {
 		assert code in seen, 'the corpus has no case for ${code}'
 	}

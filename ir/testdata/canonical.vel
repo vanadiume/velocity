@@ -1,12 +1,20 @@
 target 64 little 8
 
-pub global @counter: 8 bytes align 8 init 0x0000000000000001
+pub global @counter: i64 = 1
 
-global @message: 16 bytes align 16 readonly init 0x68656c6c6f0000000000000000000000
+global @message: [16 x i8] readonly = [104, 101, 108, 108, 111, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
-global @scratch: 4096 bytes align 16
+global @origin: {i32, i32} = {0, 0}
 
-global @late_global: 8 bytes align 8
+global @weights: <4 x f32> = [f32 0x3f800000, f32 0x40000000, f32 0x40400000, f32 0x40800000]
+
+global @anchor: ptr = null
+
+global @blank: [4 x i32] = zeroinit
+
+global @scratch: [4096 x i8]
+
+global @late_global: i64
 
 extern fn @puts(%arg0: ptr) -> i32
 
