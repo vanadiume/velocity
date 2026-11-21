@@ -65,3 +65,4 @@ owns the change, which is the same vocabulary the commits use.
 * text: the canonical fixture is what the printer writes (0a82563)
 * text: the printer's tests (1f723a3)
 * docs: the readme and the roadmap say the printer landed (736e268)
+* docs: drop the roadmap and what pointed at it (7962f56)
