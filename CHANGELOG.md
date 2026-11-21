@@ -80,3 +80,4 @@ owns the change, which is the same vocabulary the commits use.
 * optimize: constant folding (1cd59ba)
 * optimize: dead code elimination (a4ed1da)
 * optimize: the default pipeline (b4d74b1)
+* docs: the changelog for the optimizer's own lines (97279be)
