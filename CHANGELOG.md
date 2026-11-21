@@ -72,3 +72,11 @@ owns the change, which is the same vocabulary the commits use.
 * ir: the float flags (c74b138)
 * ir: the builder sets effects and builds typed globals (ecabc01)
 * ir: a malformed type is V023 wherever the verifier finds it (08206bb)
+
+## 2026-11-21
+
+* optimize: the rewrite layer (ccb2d63)
+* optimize: the pass manager (0a4bd48)
+* optimize: constant folding (1cd59ba)
+* optimize: dead code elimination (a4ed1da)
+* optimize: the default pipeline (b4d74b1)
