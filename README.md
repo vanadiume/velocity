@@ -59,18 +59,24 @@ stages above instruction selection.
 
 ## Status
 
-The IR model, the canonical text parser, the verifier and the builder are in
-`ir/`. A module can be read from text and checked: types, functions, blocks,
-instructions, globals and stack slots, with every opcode in the reference. A
-malformed file is refused with the line and the column, and a well formed one is
-checked against the twenty-two rules for structure, types, dominance, calls and
-reachability. A front end can also build a function: it declares variables,
-defines and uses them, and the builder creates the block parameters at joins, so
-no phi, alloca or mem2reg pass is involved. A test builds every opcode through
-the builder and verifies the module it produced.
+The IR model, the canonical text parser, the printer, the verifier and the
+builder are in `ir/`. A module can be read from text and checked: types,
+functions, blocks, instructions, globals and stack slots, with every opcode in
+the reference. A malformed file is refused with the line and the column, and a
+well formed one is checked against the twenty-two rules for structure, types,
+dominance, calls and reachability. A front end can also build a function: it
+declares variables, defines and uses them, and the builder creates the block
+parameters at joins, so no phi, alloca or mem2reg pass is involved. A test builds
+every opcode through the builder and verifies the module it produced.
 
-There is no printer and no encoder yet, so a module can be built, read and
-checked, not written back or emitted.
+A module also writes back out. `print_module` writes the canonical text, with
+values, blocks and stack slots renumbered as the text mentions them, and a
+canonical file prints byte for byte: `ir/testdata/canonical.vel` comes out of the
+printer exactly as it went in. A module the builder assembles prints into text
+that the parser reads and the verifier accepts.
+
+There is no encoder yet, so a module can be built, read, checked and written
+back, not emitted.
 [ROADMAP.md](ROADMAP.md) has the order the work takes, and the gate runs over the
 tree.
 
