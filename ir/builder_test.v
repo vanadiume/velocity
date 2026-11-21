@@ -1059,3 +1059,16 @@ fn test_every_opcode_has_a_builder_method() {
 	errors := verify_module(&module)
 	assert errors.len == 0, errors.map(it.msg()).join('\n')
 }
+
+fn test_a_width_that_is_not_a_power_of_two_aligns_to_one() {
+	mut function := new_function('narrow', [ty_ptr], [int_type(24)])
+	mut builder := new_builder(mut function, builder_target())
+	entry := builder.create_entry_block()
+	builder.switch_to_block(entry)
+	pointer := builder.param(0)
+	loaded := builder.load(pointer, int_type(24))
+	builder.return_([loaded])
+	builder.finish()
+	assert function.blocks[0].instructions[0].align == 1
+	assert_verified_function(function)
+}

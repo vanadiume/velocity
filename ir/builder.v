@@ -604,7 +604,10 @@ fn (mut b Builder) expect(value ValueRef, want Type, site string) {
 }
 
 // natural_align is the alignment a memory operation gets when the frontend does
-// not state one: the size of a scalar, and the pointer alignment of a pointer.
+// not state one: the largest power of two that divides a scalar's size, and the
+// pointer alignment of a pointer. A width whose byte size is not a power of two,
+// i24 for instance, aligns to a smaller power of two, because every stated
+// alignment has to be one.
 fn (b &Builder) natural_align(typ Type, site string) u16 {
 	if typ.is_ptr() {
 		target := b.target or {
@@ -612,7 +615,12 @@ fn (b &Builder) natural_align(typ Type, site string) u16 {
 		}
 		return target.pointer_align
 	}
-	return u16(typ.size(0))
+	size := typ.size(0)
+	mut align := 1
+	for align * 2 <= size && size % (align * 2) == 0 {
+		align *= 2
+	}
+	return u16(align)
 }
 
 // Flags.
