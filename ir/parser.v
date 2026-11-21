@@ -449,12 +449,13 @@ fn (mut p Parser) parse_function(public bool, external bool) !Function {
 	name := p.expect_symbol()!
 	p.expect_punct('(')!
 	mut param_names := []Token{}
-	mut param_types := []Type{}
+	mut params := []Param{}
 	if !p.at_punct(')') {
 		for {
 			param_names << p.expect_value()!
 			p.expect_punct(':')!
-			param_types << p.expect_type()!
+			typ := p.expect_type()!
+			params << param(typ, p.parse_noundef())
 			if p.at_punct(',') {
 				p.advance()
 				continue
@@ -463,16 +464,18 @@ fn (mut p Parser) parse_function(public bool, external bool) !Function {
 		}
 	}
 	p.expect_punct(')')!
-	mut results := []Type{}
+	mut results := []Result{}
 	if p.at_punct('->') {
 		p.advance()
 		results = p.parse_result_types()!
 	}
+	effect_set := p.parse_effects()
 	mut function := Function{
 		name:      name.text
 		signature: Signature{
-			params:  param_types
+			params:  params
 			results: results
+			effects: effect_set
 		}
 		public:    public
 		defined:   !external
@@ -480,7 +483,7 @@ fn (mut p Parser) parse_function(public bool, external bool) !Function {
 	p.value_index.clear()
 	p.label_index.clear()
 	for i in 0 .. param_names.len {
-		p.define_value(mut function, param_names[i], param_types[i], .function_param, -1, -1)!
+		p.define_value(mut function, param_names[i], params[i].typ, .function_param, -1, -1)!
 	}
 	if external {
 		p.expect_eol('the declaration')!
@@ -515,13 +518,14 @@ fn (mut p Parser) parse_function(public bool, external bool) !Function {
 	return function
 }
 
-fn (mut p Parser) parse_result_types() ![]Type {
+fn (mut p Parser) parse_result_types() ![]Result {
 	if p.at_punct('(') {
 		p.advance()
-		mut types := []Type{}
+		mut results := []Result{}
 		if !p.at_punct(')') {
 			for {
-				types << p.expect_type()!
+				typ := p.expect_type()!
+				results << result(typ, p.parse_noundef())
 				if p.at_punct(',') {
 					p.advance()
 					continue
@@ -530,11 +534,42 @@ fn (mut p Parser) parse_result_types() ![]Type {
 			}
 		}
 		p.expect_punct(')')!
-		return types
+		return results
 	}
-	mut types := []Type{cap: 1}
-	types << p.expect_type()!
-	return types
+	mut results := []Result{cap: 1}
+	typ := p.expect_type()!
+	results << result(typ, p.parse_noundef())
+	return results
+}
+
+// parse_noundef reads the promise after a parameter or a result's type.
+fn (mut p Parser) parse_noundef() bool {
+	if p.at_ident('noundef') {
+		p.advance()
+		return true
+	}
+	return false
+}
+
+// parse_effects reads the call effects after the results. They are a set, so a
+// file may write them in any order; the printer writes the canonical one.
+fn (mut p Parser) parse_effects() EffectSet {
+	mut set := EffectSet{}
+	for {
+		token := p.peek()
+		if token.kind != .ident {
+			return set
+		}
+		match token.text {
+			'readonly' { set.readonly = true }
+			'readnone' { set.readnone = true }
+			'argmemonly' { set.argmemonly = true }
+			'nounwind' { set.nounwind = true }
+			else { return set }
+		}
+		p.advance()
+	}
+	return set
 }
 
 fn (mut p Parser) parse_stack_slot() !StackSlot {
@@ -1084,10 +1119,11 @@ fn (mut p Parser) parse_block_target() !BlockTarget {
 
 fn (mut p Parser) parse_signature() !Signature {
 	p.expect_punct('(')!
-	mut params := []Type{}
+	mut params := []Param{}
 	if !p.at_punct(')') {
 		for {
-			params << p.expect_type()!
+			typ := p.expect_type()!
+			params << param(typ, p.parse_noundef())
 			if p.at_punct(',') {
 				p.advance()
 				continue
@@ -1096,14 +1132,16 @@ fn (mut p Parser) parse_signature() !Signature {
 		}
 	}
 	p.expect_punct(')')!
-	mut results := []Type{}
+	mut results := []Result{}
 	if p.at_punct('->') {
 		p.advance()
 		results = p.parse_result_types()!
 	}
+	effect_set := p.parse_effects()
 	return Signature{
 		params:  params
 		results: results
+		effects: effect_set
 	}
 }
 
@@ -1248,7 +1286,7 @@ fn instruction_result_types(inst Instruction, function Function, pointer_width u
 			return [ty_ptr]
 		}
 		.call, .call_indirect {
-			return inst.signature.results
+			return inst.signature.result_types()
 		}
 		.inline_asm {
 			mut types := []Type{cap: inst.asm.outputs.len}
@@ -1372,15 +1410,15 @@ fn resolve_instruction_symbol(mut module Module, fi int, bi int, ii int, termina
 		}
 	}
 	mut index := -1
-	mut signature := Signature{}
+	mut callee_signature := Signature{}
 	if kind == .function {
 		index = module.find_function_index(operand.name) or { -1 }
-		signature = module.functions[index].signature
-		if op == .call && inst.results.len != signature.results.len {
+		callee_signature = module.functions[index].signature
+		if op == .call && inst.results.len != callee_signature.results.len {
 			return ParseError{
 				line:    operand.line
 				col:     operand.col
-				message: "'@${operand.name}' returns ${signature.results.len} results, found ${inst.results.len}"
+				message: "'@${operand.name}' returns ${callee_signature.results.len} results, found ${inst.results.len}"
 			}
 		}
 	} else {
@@ -1390,7 +1428,7 @@ fn resolve_instruction_symbol(mut module Module, fi int, bi int, ii int, termina
 	resolved.operands[0].sym = kind
 	resolved.operands[0].idx = index
 	if kind == .function && (op == .call || op == .tailcall) {
-		resolved.signature = signature
+		resolved.signature = callee_signature
 	}
 	if terminator {
 		module.functions[fi].blocks[bi].terminator = resolved

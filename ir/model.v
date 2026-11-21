@@ -24,9 +24,137 @@ pub mut:
 }
 
 pub struct Signature {
+pub mut:
+	params  []Param
+	results []Result
+	effects EffectSet
+}
+
+// Param is one parameter: its type and whether the caller promises it is never
+// poison. Result is the same promise in the other direction.
+pub struct Param {
 pub:
-	params  []Type
-	results []Type
+	typ     Type
+	noundef bool
+}
+
+pub struct Result {
+pub:
+	typ     Type
+	noundef bool
+}
+
+// EffectSet is the four call effects from ir-model.md. readonly and readnone
+// are never both set, which V032 enforces.
+pub struct EffectSet {
+pub mut:
+	readonly   bool
+	readnone   bool
+	argmemonly bool
+	nounwind   bool
+}
+
+pub enum Effect {
+	readonly
+	readnone
+	argmemonly
+	nounwind
+}
+
+pub fn param(typ Type, noundef bool) Param {
+	return Param{
+		typ:     typ
+		noundef: noundef
+	}
+}
+
+pub fn result(typ Type, noundef bool) Result {
+	return Result{
+		typ:     typ
+		noundef: noundef
+	}
+}
+
+pub fn signature(params []Param, results []Result) Signature {
+	return Signature{
+		params:  params
+		results: results
+	}
+}
+
+// signature_with_effects is the constructor a frontend uses when a declaration
+// carries the effects an optimizer reads at every call.
+pub fn signature_with_effects(params []Param, results []Result, effects EffectSet) Signature {
+	return Signature{
+		params:  params
+		results: results
+		effects: effects
+	}
+}
+
+pub fn effects(list ...Effect) EffectSet {
+	mut set := EffectSet{}
+	for effect in list {
+		match effect {
+			.readonly { set.readonly = true }
+			.readnone { set.readnone = true }
+			.argmemonly { set.argmemonly = true }
+			.nounwind { set.nounwind = true }
+		}
+	}
+	return set
+}
+
+pub fn (e EffectSet) is_empty() bool {
+	return !e.readonly && !e.readnone && !e.argmemonly && !e.nounwind
+}
+
+// text is the canonical order from ir-text.md.
+pub fn (e EffectSet) text() string {
+	mut written := []string{cap: 4}
+	if e.readonly {
+		written << 'readonly'
+	}
+	if e.readnone {
+		written << 'readnone'
+	}
+	if e.argmemonly {
+		written << 'argmemonly'
+	}
+	if e.nounwind {
+		written << 'nounwind'
+	}
+	return written.join(' ')
+}
+
+pub fn (p Param) str() string {
+	if p.noundef {
+		return '${p.typ.str()} noundef'
+	}
+	return p.typ.str()
+}
+
+pub fn (r Result) str() string {
+	if r.noundef {
+		return '${r.typ.str()} noundef'
+	}
+	return r.typ.str()
+}
+
+pub fn (s Signature) param_types() []Type {
+	mut types := []Type{cap: s.params.len}
+	for p in s.params {
+		types << p.typ
+	}
+	return types
+}
+
+pub fn (s Signature) result_types() []Type {
+	mut types := []Type{cap: s.results.len}
+	for r in s.results {
+		types << r.typ
+	}
+	return types
 }
 
 pub struct Function {

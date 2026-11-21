@@ -222,7 +222,24 @@ fn check_module(m &Module) []VerifyError {
 			message:  "'@${name}' is declared ${signature_text(first_declaration[name])} and defined ${signature_text(first_definition[name])}"
 		}
 	}
+	for function in m.functions {
+		errors << check_effects(function.signature.effects,
+			"the signature of '@${function.name}'")
+	}
 	return errors
+}
+
+// check_effects holds V032: readonly and readnone are never both set. The text
+// form only accepts an effect after a signature, so an effect written anywhere
+// else is a parse error rather than a set the verifier could see.
+fn check_effects(effects EffectSet, site string) []VerifyError {
+	if effects.readonly && effects.readnone {
+		return [VerifyError{
+			code:    'V032'
+			message: '${site} is both readonly and readnone'
+		}]
+	}
+	return []
 }
 
 // signature_text is the one line spelling a message uses for a signature.
@@ -233,7 +250,12 @@ fn signature_text(signature Signature) string {
 		1 { ' -> ${signature.results[0].str()}' }
 		else { ' -> (${signature.results.map(it.str()).join(', ')})' }
 	}
-	return '(${params})${results}'
+	effect_text := if signature.effects.is_empty() {
+		''
+	} else {
+		' ${signature.effects.text()}'
+	}
+	return '(${params})${results}${effect_text}'
 }
 
 // check_global holds what a global states: a type the model has (V023), a type
@@ -365,16 +387,16 @@ fn const_kind_text(kind ConstKind) string {
 // check_signature refuses a type that the type model does not have. The parser
 // cannot produce one; a builder that assembles the structs by hand can.
 fn (mut c VerifyContext) check_signature(function &Function) {
-	for i, typ in function.signature.params {
-		problem := type_problem(typ)
+	for i, param in function.signature.params {
+		problem := type_problem(param.typ)
 		if problem != '' {
-			c.error('V007', "parameter ${i + 1} of '@${function.name}' has type ${typ.str()}: ${problem}")
+			c.error('V007', "parameter ${i + 1} of '@${function.name}' has type ${param.typ.str()}: ${problem}")
 		}
 	}
-	for i, typ in function.signature.results {
-		problem := type_problem(typ)
+	for i, result in function.signature.results {
+		problem := type_problem(result.typ)
 		if problem != '' {
-			c.error('V007', "result ${i + 1} of '@${function.name}' has type ${typ.str()}: ${problem}")
+			c.error('V007', "result ${i + 1} of '@${function.name}' has type ${result.typ.str()}: ${problem}")
 		}
 	}
 }
@@ -395,7 +417,7 @@ fn (mut c VerifyContext) check_value_table(function &Function) {
 		}
 		defined[i] = true
 		value := function.values[i]
-		expected := function.signature.params[i]
+		expected := function.signature.params[i].typ
 		if value.kind != .function_param || value.typ != expected {
 			c.error('V005', 'value ${i} is not function parameter ${i + 1} of type ${expected.str()}')
 		}
@@ -913,7 +935,7 @@ fn (mut c VerifyContext) check_jump_target(function &Function, target BlockTarge
 }
 
 fn (mut c VerifyContext) check_return(function &Function, inst Instruction) {
-	results := function.signature.results
+	results := function.signature.result_types()
 	if inst.operands.len != results.len {
 		c.error('V011', "'return' passes ${value_count_phrase(inst.operands.len)}, and the function returns ${value_count_phrase(results.len)}")
 		return
@@ -940,23 +962,23 @@ fn (mut c VerifyContext) check_direct_call(module &Module, function &Function, i
 		c.error('V012', "'${name}' names '@${callee.name}', which is not a declared function")
 		return
 	}
-	signature := module.functions[index].signature
+	callee_signature := module.functions[index].signature
 	args := inst.operands[1..]
-	if args.len != signature.params.len {
-		c.error('V012', "the call to '@${callee.name}' passes ${args.len} arguments, and the declaration takes ${signature.params.len}")
+	if args.len != callee_signature.params.len {
+		c.error('V012', "the call to '@${callee.name}' passes ${args.len} arguments, and the declaration takes ${callee_signature.params.len}")
 	}
 	for i in 0 .. args.len {
-		if i >= signature.params.len {
+		if i >= callee_signature.params.len {
 			break
 		}
-		c.expect_operand_is(function, args[i], signature.params[i], 'V012',
+		c.expect_operand_is(function, args[i], callee_signature.params[i].typ, 'V012',
 			"argument ${i + 1} of the call to '@${callee.name}'")
 	}
 	if inst.opcode == .tailcall {
-		c.check_tail_results(signature, function, inst)
+		c.check_tail_results(callee_signature, function, inst)
 		return
 	}
-	c.check_call_results(function, inst, signature.results, "the call to '@${callee.name}'")
+	c.check_call_results(function, inst, callee_signature.result_types(), "the call to '@${callee.name}'")
 }
 
 fn (mut c VerifyContext) check_indirect_call(function &Function, inst Instruction) {
@@ -976,35 +998,39 @@ fn (mut c VerifyContext) check_indirect_call(function &Function, inst Instructio
 			c.error('V007', "operand 1 of '${name}' has type ${typ.str()}, expected ptr")
 		}
 	}
-	signature := inst.signature
-	for i, typ in signature.params {
-		problem := type_problem(typ)
+	callee_signature := inst.signature
+	errors := check_effects(callee_signature.effects, "the signature on '${name}'")
+	for error in errors {
+		c.errors << error
+	}
+	for i, param in callee_signature.params {
+		problem := type_problem(param.typ)
 		if problem != '' {
-			c.error('V012', "parameter ${i + 1} of the signature on '${name}' has type ${typ.str()}: ${problem}")
+			c.error('V012', "parameter ${i + 1} of the signature on '${name}' has type ${param.typ.str()}: ${problem}")
 		}
 	}
-	for i, typ in signature.results {
-		problem := type_problem(typ)
+	for i, result_ in callee_signature.results {
+		problem := type_problem(result_.typ)
 		if problem != '' {
-			c.error('V012', "result ${i + 1} of the signature on '${name}' has type ${typ.str()}: ${problem}")
+			c.error('V012', "result ${i + 1} of the signature on '${name}' has type ${result_.typ.str()}: ${problem}")
 		}
 	}
 	args := inst.operands[1..]
-	if args.len != signature.params.len {
-		c.error('V012', "'${name}' carries ${signature.params.len} parameters, and the call passes ${args.len} arguments")
+	if args.len != callee_signature.params.len {
+		c.error('V012', "'${name}' carries ${callee_signature.params.len} parameters, and the call passes ${args.len} arguments")
 	}
 	for i in 0 .. args.len {
-		if i >= signature.params.len {
+		if i >= callee_signature.params.len {
 			break
 		}
-		c.expect_operand_is(function, args[i], signature.params[i], 'V012',
+		c.expect_operand_is(function, args[i], callee_signature.params[i].typ, 'V012',
 			"argument ${i + 1} of '${name}'")
 	}
 	if inst.opcode == .tailcall_indirect {
-		c.check_tail_results(signature, function, inst)
+		c.check_tail_results(callee_signature, function, inst)
 		return
 	}
-	c.check_call_results(function, inst, signature.results, name)
+	c.check_call_results(function, inst, callee_signature.result_types(), name)
 }
 
 // check_call_results holds the result side of a call's signature, in the same
@@ -1035,10 +1061,10 @@ fn (mut c VerifyContext) check_call_results(function &Function, inst Instruction
 // order, because a tail call replaces the frame rather than returning to it.
 fn (mut c VerifyContext) check_tail_results(signature Signature, function &Function,
 	inst Instruction) {
-	if signature.results == function.signature.results {
+	if signature.result_types() == function.signature.result_types() {
 		return
 	}
-	c.error('V013', "'${inst.opcode.name()}' returns ${results_text(signature.results)}, and the function returns ${results_text(function.signature.results)}")
+	c.error('V013', "'${inst.opcode.name()}' returns ${results_text(signature.result_types())}, and the function returns ${results_text(function.signature.result_types())}")
 }
 
 fn results_text(results []Type) string {

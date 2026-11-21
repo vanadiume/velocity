@@ -138,12 +138,13 @@ fn header_text(function &Function) string {
 	}
 	out.write_string(')')
 	out.write_string(result_suffix(function.signature.results))
+	out.write_string(effects_suffix(function.signature.effects))
 	return out.str()
 }
 
-// result_suffix is what follows the parameter list: nothing, one type, or a
+// result_suffix is what follows the parameter list: nothing, one result, or a
 // parenthesized list of them.
-fn result_suffix(results []Type) string {
+fn result_suffix(results []Result) string {
 	if results.len == 0 {
 		return ''
 	}
@@ -162,6 +163,13 @@ fn result_suffix(results []Type) string {
 	return out.str()
 }
 
+fn effects_suffix(effects EffectSet) string {
+	if effects.is_empty() {
+		return ''
+	}
+	return ' ${effects.text()}'
+}
+
 fn signature_form(signature &Signature) string {
 	mut out := strings.new_builder(32)
 	out.write_string('(')
@@ -173,6 +181,7 @@ fn signature_form(signature &Signature) string {
 	}
 	out.write_string(')')
 	out.write_string(result_suffix(signature.results))
+	out.write_string(effects_suffix(signature.effects))
 	return out.str()
 }
 

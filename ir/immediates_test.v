@@ -235,7 +235,7 @@ block0:
 '
 	m := parse_text(text) or { panic('${err.msg()}') }
 	f := m.functions[0]
-	assert f.signature.results == [ty_i32, ty_i64]
+	assert f.signature.result_types() == [ty_i32, ty_i64]
 	overflow := f.blocks[0].instructions[1]
 	assert overflow.results.len == 2
 	assert f.values[overflow.results[0]].typ == ty_i32

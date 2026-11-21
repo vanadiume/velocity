@@ -50,10 +50,7 @@ fn build_print_module() Module {
 	mut module := Module{
 		target: printer_target()
 	}
-	callee := Signature{
-		params:  [ty_i32]
-		results: [ty_i32]
-	}
+	callee := signature([param(ty_i32, false)], [result(ty_i32, false)])
 
 	mut count := new_function('count', [ty_i32], [ty_i32])
 	mut cb := new_builder(mut count, printer_target())
@@ -435,6 +432,25 @@ global @nested: {ptr, [4 x <8 x i16>]} = zeroinit
 '
 	printed := print_module(parse_text(text) or { panic('${err.msg()}') })
 	assert printed == text, printed
+}
+
+// noundef follows the type it applies to, and the effects follow the results in
+// the canonical order whatever order the file wrote them in.
+fn test_effects_and_noundef_print_after_the_results() {
+	text := 'target 64 little 8
+
+extern fn @f(%arg0: i32 noundef) -> (i32 noundef, i64) nounwind argmemonly readonly
+
+fn @g(%p: ptr noundef, %x: i32 noundef) -> i32 noundef {
+block0:
+  %v0 = call_indirect %p : (i32 noundef) -> i32 noundef nounwind readonly (1)
+  return %v0
+}
+'
+	printed := print_module(parse_text(text) or { panic('${err.msg()}') })
+	assert printed.contains('extern fn @f(%arg0: i32 noundef) -> (i32 noundef, i64) readonly argmemonly nounwind\n'), printed
+	assert printed.contains('fn @g(%arg0: ptr noundef, %arg1: i32 noundef) -> i32 noundef {\n'), printed
+	assert printed.contains('call_indirect %arg0 : (i32 noundef) -> i32 noundef readonly nounwind (1)'), printed
 }
 
 fn test_declarations_are_separated_by_one_blank_line_and_the_file_ends_once() {

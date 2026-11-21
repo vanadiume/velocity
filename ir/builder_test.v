@@ -417,11 +417,8 @@ fn test_a_direct_call_and_a_tail_call_verify() {
 	mut builder := new_builder(mut function, builder_target())
 	entry := builder.create_entry_block()
 	builder.switch_to_block(entry)
-	signature := Signature{
-		params:  [ty_i32]
-		results: [ty_i32]
-	}
-	results := builder.call('callee', signature, [builder.param(0)])
+	sig := signature([param(ty_i32, false)], [result(ty_i32, false)])
+	results := builder.call('callee', sig, [builder.param(0)])
 	builder.return_([results[0]])
 	builder.finish()
 
@@ -429,7 +426,7 @@ fn test_a_direct_call_and_a_tail_call_verify() {
 	mut tail_builder := new_builder(mut tail, builder_target())
 	tail_entry := tail_builder.create_entry_block()
 	tail_builder.switch_to_block(tail_entry)
-	tail_builder.tailcall('callee', signature, [tail_builder.param(0)])
+	tail_builder.tailcall('callee', sig, [tail_builder.param(0)])
 	tail_builder.finish()
 
 	module := Module{
@@ -437,7 +434,7 @@ fn test_a_direct_call_and_a_tail_call_verify() {
 		functions: [
 			Function{
 				name:      'callee'
-				signature: signature
+				signature: sig
 			},
 			function,
 			tail,
@@ -452,10 +449,9 @@ fn test_an_indirect_call_verifies() {
 	mut builder := new_builder(mut function, builder_target())
 	entry := builder.create_entry_block()
 	builder.switch_to_block(entry)
-	results := builder.call_indirect(builder.param(0), Signature{
-		params:  [ty_i32]
-		results: [ty_i32]
-	}, [builder.param(1)])
+	results := builder.call_indirect(builder.param(0), signature([param(ty_i32, false)], [
+		result(ty_i32, false),
+	]), [builder.param(1)])
 	builder.return_([results[0]])
 	builder.finish()
 	assert function.blocks[0].terminator.opcode == .@return
@@ -803,10 +799,7 @@ fn build_every_opcode() Module {
 	mut module := Module{
 		target: builder_target()
 	}
-	callee := Signature{
-		params:  [ty_i32]
-		results: [ty_i32]
-	}
+	callee := signature([param(ty_i32, false)], [result(ty_i32, false)])
 
 	mut constants := new_function('op_constants', [ty_i32], [ty_i32])
 	mut builder := new_builder(mut constants, builder_target())

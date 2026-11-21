@@ -79,6 +79,21 @@ block0:
 		fragment: 'is declared (i32) -> i32'
 	},
 	Refusal{
+		text:     'target 64 little 8\nextern fn @f(%arg0: i32) -> i32 readonly readnone\n'
+		code:     'V032'
+		fragment: 'is both readonly and readnone'
+	},
+	Refusal{
+		text:     'target 64 little 8\nfn @f(%p: ptr) -> i32 {\nblock0:\n  %v0 = call_indirect %p : (i32) -> i32 readonly readnone (1)\n  return %v0\n}\n'
+		code:     'V032'
+		fragment: 'is both readonly and readnone'
+	},
+	Refusal{
+		text:     'target 64 little 8\nextern fn @f(%arg0: i32) -> i32 readonly\n\nfn @f(%arg0: i32) -> i32 readnone {\nblock0:\n  return %arg0\n}\n'
+		code:     'V019'
+		fragment: 'is declared (i32) -> i32 readonly'
+	},
+	Refusal{
 		text:     'target 64 little 8\nglobal @g: [4 x i32] = [1, 2]\n'
 		code:     'V033'
 		fragment: 'has 2 leaves and [4 x i32] has 4 elements'
@@ -476,9 +491,7 @@ fn test_a_value_defined_twice_is_refused() {
 	mut function := Function{
 		name:      'f'
 		defined:   true
-		signature: Signature{
-			results: [ty_i32]
-		}
+		signature: signature([], [result(ty_i32, false)])
 	}
 	function.blocks << Block{
 		label:        'block0'
@@ -575,9 +588,7 @@ fn test_an_operand_naming_a_value_that_does_not_exist_is_refused() {
 	mut function := Function{
 		name:      'f'
 		defined:   true
-		signature: Signature{
-			results: [ty_i32]
-		}
+		signature: signature([], [result(ty_i32, false)])
 	}
 	function.blocks << Block{
 		label:      'block0'
@@ -621,9 +632,7 @@ fn hand_built_modules() []Module {
 	mut doubled := Function{
 		name:      'doubled'
 		defined:   true
-		signature: Signature{
-			results: [ty_i32]
-		}
+		signature: signature([], [result(ty_i32, false)])
 	}
 	doubled.blocks << Block{
 		label:        'block0'
@@ -687,8 +696,8 @@ fn test_the_corpus_covers_every_code() {
 	}
 	codes := ['V001', 'V002', 'V003', 'V004', 'V005', 'V006', 'V007', 'V008', 'V009', 'V010', 'V011',
 		'V012', 'V013', 'V014', 'V015', 'V016', 'V017', 'V018', 'V019', 'V020', 'V021', 'V022',
-		'V023', 'V033']
-	assert codes.len == 24
+		'V023', 'V032', 'V033']
+	assert codes.len == 25
 	for code in codes {
 		assert code in seen, 'the corpus has no case for ${code}'
 	}

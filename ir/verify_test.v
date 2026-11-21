@@ -59,6 +59,36 @@ global @plain: [2 x i16]
 ')
 }
 
+// A signature carries its effects and the noundef promise on each parameter
+// and result. A direct call reads them from the declaration; an indirect call
+// carries them in its own signature.
+fn test_effects_and_noundef_verify() {
+	assert_verified('target 64 little 8
+extern fn @printf_like(%fmt: ptr noundef) -> i32 readonly nounwind
+
+extern fn @checked(%x: i32 noundef) -> i32 noundef readnone
+
+extern fn @g(%arg0: i32 noundef) -> i32 noundef readonly
+
+fn @g(%arg0: i32 noundef) -> i32 noundef readonly {
+block0:
+  return %arg0
+}
+
+fn @use(%x: i32 noundef) -> i32 {
+block0:
+  %v0 = call @checked(%x)
+  return %v0
+}
+
+fn @caller(%p: ptr noundef) -> i32 noundef {
+block0:
+  %v0 = call_indirect %p : (i32 noundef) -> i32 noundef readonly nounwind (1)
+  return %v0
+}
+')
+}
+
 // A declaration alone verifies.
 fn test_a_declaration_alone_verifies() {
 	assert_verified('target 32 big 4

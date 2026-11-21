@@ -66,6 +66,9 @@ fn bad_cases() []BadText {
 		BadText{'array type without a closing bracket', 'target 64 little 8\nglobal @g: [4 x i32 = zeroinit\n', 2, 21, "expected ']'"},
 		BadText{'unterminated constant list', 'target 64 little 8\nglobal @g: [2 x i32] = [1, 2\n', 2, 29, "expected ']'"},
 		BadText{'unknown constant', 'target 64 little 8\nglobal @g: i32 = true\n', 2, 18, 'expected a constant'},
+		BadText{'duplicate noundef', 'target 64 little 8\nfn @f(%a: i32 noundef noundef) {\nblock0:\n  return\n}\n', 2, 23, "expected ')'"},
+		BadText{'unknown effect', 'target 64 little 8\nextern fn @f() -> i32 readonly bogus\n', 2, 32, 'expected the end of the line after the declaration'},
+		BadText{'indirect signature without its arguments', prelude + '  %v0 = call_indirect %arg0 : (i32) -> i32 readonly\n  return %v0\n}\n', 4, 52, "expected '('"},
 	]
 }
 

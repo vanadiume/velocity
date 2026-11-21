@@ -16,13 +16,13 @@ global @scratch: [4096 x i8]
 
 global @late_global: i64
 
-extern fn @puts(%arg0: ptr) -> i32
+extern fn @puts(%arg0: ptr noundef) -> i32 readonly nounwind
 
-extern fn @identity(%arg0: i64) -> i64
+extern fn @identity(%arg0: i64 noundef) -> i64 noundef
 
-extern fn @minmax(%arg0: i32, %arg1: i32) -> (i32, i32)
+extern fn @minmax(%arg0: i32, %arg1: i32) -> (i32 noundef, i32 noundef) readonly
 
-fn @max(%arg0: i32, %arg1: i32) -> i32 {
+fn @max(%arg0: i32, %arg1: i32) -> i32 readnone nounwind {
 block0:
   %v0 = icmp sgt %arg0, %arg1
   %v1 = select %v0, %arg0, %arg1
@@ -60,7 +60,7 @@ block6:
 
 fn @dispatch(%arg0: ptr, %arg1: i64) -> i64 {
 block0:
-  %v0 = call_indirect %arg0 : (i64) -> i64 (%arg1)
+  %v0 = call_indirect %arg0 : (i64) -> i64 readnone nounwind (%arg1)
   %v1 = func_addr @identity
   %v2 = call_indirect %v1 : (i64) -> i64 (%v0)
   %v3, %v4 = inline_asm "mov $0, $1; add $1, $2" out(i64, "=r") out(i32, "=r") in(%v2, "r") in(%v1, "r") clobber("cc") clobber("memory") volatile

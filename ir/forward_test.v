@@ -37,8 +37,8 @@ fn test_a_call_to_a_later_function_resolves() {
 	assert call.operands[0].name == 'second'
 	assert call.operands[0].sym == .function
 	assert call.operands[0].idx == 1
-	assert call.signature.params == [ty_i64]
-	assert call.signature.results == [ty_i64]
+	assert call.signature.param_types() == [ty_i64]
+	assert call.signature.result_types() == [ty_i64]
 	assert first.values[call.results[0]].typ == ty_i64
 }
 
@@ -134,9 +134,9 @@ block0:
 	m := parse_text(text) or { panic('${err.msg()}') }
 	f := m.functions[0]
 	call := f.blocks[0].instructions[0]
-	assert call.signature.params == [ty_i32]
-	assert call.signature.results == [ty_i32]
+	assert call.signature.param_types() == [ty_i32]
+	assert call.signature.result_types() == [ty_i32]
 	term := f.blocks[0].terminator
 	assert term.opcode == .tailcall_indirect
-	assert term.signature.results.len == 0
+	assert term.signature.result_types().len == 0
 }

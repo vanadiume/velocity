@@ -91,8 +91,20 @@ fn test_extern_declaration_has_a_signature_and_no_blocks() {
 	f := m.functions[index]
 	assert f.defined == false
 	assert f.blocks.len == 0
-	assert f.signature.params == [ty_i64]
-	assert f.signature.results == [ty_i64]
+	assert f.signature.param_types() == [ty_i64]
+	assert f.signature.result_types() == [ty_i64]
+	assert f.signature.params[0].noundef
+	assert f.signature.results[0].noundef
+	assert f.signature.effects.is_empty()
+	puts := m.functions[function_index(m, 'puts')]
+	assert puts.signature.params[0].noundef
+	assert puts.signature.effects.readonly
+	assert puts.signature.effects.nounwind
+	minmax := m.functions[function_index(m, 'minmax')]
+	assert minmax.signature.results[0].noundef
+	assert minmax.signature.results[1].noundef
+	assert minmax.signature.effects.readonly
+	assert minmax.signature.effects.readnone == false
 }
 
 fn test_signature_with_two_results() {
@@ -100,8 +112,8 @@ fn test_signature_with_two_results() {
 	f := m.functions[function_index(m, 'classify')]
 	assert f.public
 	assert f.defined
-	assert f.signature.params == [ty_i32]
-	assert f.signature.results == [ty_i32, ty_i32]
+	assert f.signature.param_types() == [ty_i32]
+	assert f.signature.result_types() == [ty_i32, ty_i32]
 }
 
 fn test_stack_slot_before_the_blocks() {
@@ -202,8 +214,10 @@ fn test_direct_calls_take_their_signature_from_the_declaration() {
 	assert call.operands[0].kind == .symbol
 	assert call.operands[0].name == 'max'
 	assert call.operands[0].sym == .function
-	assert call.signature.params == [ty_i32, ty_i32]
-	assert call.signature.results == [ty_i32]
+	assert call.signature.param_types() == [ty_i32, ty_i32]
+	assert call.signature.result_types() == [ty_i32]
+	assert call.signature.effects.readnone
+	assert call.signature.effects.nounwind
 	assert classify.values[call.results[0]].typ == ty_i32
 }
 
@@ -214,12 +228,15 @@ fn test_indirect_calls_carry_a_signature() {
 	assert first.opcode == .call_indirect
 	assert first.operands.len == 2
 	assert first.operands[0].kind == .value
-	assert first.signature.params == [ty_i64]
-	assert first.signature.results == [ty_i64]
+	assert first.signature.param_types() == [ty_i64]
+	assert first.signature.result_types() == [ty_i64]
+	assert first.signature.effects.readnone
+	assert first.signature.effects.nounwind
 	assert f.values[first.results[0]].typ == ty_i64
 	last := f.blocks[0].instructions[7]
 	assert last.opcode == .call_indirect
-	assert last.signature.params == [ty_i64, ty_i64]
+	assert last.signature.param_types() == [ty_i64, ty_i64]
+	assert last.signature.effects.is_empty()
 	assert last.operands.len == 3
 }
 
@@ -228,8 +245,8 @@ fn test_tail_calls() {
 	f := m.functions[function_index(m, 'tail')]
 	term := f.blocks[0].terminator
 	assert term.opcode == .tailcall_indirect
-	assert term.signature.params == [ty_i64]
-	assert term.signature.results == [ty_i64]
+	assert term.signature.param_types() == [ty_i64]
+	assert term.signature.result_types() == [ty_i64]
 	classify := m.functions[function_index(m, 'classify')]
 	tail := classify.blocks[6].terminator
 	assert tail.opcode == .tailcall
@@ -348,7 +365,7 @@ block0:
 }
 '
 	m := parse_text(text) or { panic('${err.msg()}') }
-	assert m.functions[0].signature.results.len == 0
+	assert m.functions[0].signature.result_types().len == 0
 	assert m.functions[0].blocks[0].terminator.operands.len == 0
 }
 

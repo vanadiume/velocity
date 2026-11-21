@@ -83,20 +83,36 @@ pub:
 	typ Type
 }
 
-// new_function starts a definition with a signature and the function parameters
-// in the first slots of its value table.
+// new_function starts a definition with the parameter and result types. It is
+// the short form for a frontend whose signature carries no noundef and no
+// effects; new_function_signature takes the whole signature.
 pub fn new_function(name string, params []Type, results []Type) Function {
-	mut function := Function{
-		name:    name
-		defined: true
-	}
-	function.signature = Signature{
-		params:  params
-		results: results
-	}
+	mut sig_params := []Param{cap: params.len}
 	for typ in params {
+		sig_params << Param{
+			typ: typ
+		}
+	}
+	mut sig_results := []Result{cap: results.len}
+	for typ in results {
+		sig_results << Result{
+			typ: typ
+		}
+	}
+	return new_function_signature(name, signature(sig_params, sig_results))
+}
+
+// new_function_signature starts a definition with a signature a frontend built,
+// including its effects and the noundef promises on its parameters and results.
+pub fn new_function_signature(name string, sig Signature) Function {
+	mut function := Function{
+		name:      name
+		signature: sig
+		defined:   true
+	}
+	for param in sig.params {
 		function.values << Value{
-			typ:   typ
+			typ:   param.typ
 			kind:  .function_param
 			block: -1
 			inst:  -1
@@ -124,7 +140,7 @@ pub fn (b &Builder) param(index int) ValueRef {
 	}
 	return ValueRef{
 		idx: index
-		typ: params[index]
+		typ: params[index].typ
 	}
 }
 
@@ -353,7 +369,7 @@ pub fn (mut b Builder) switch_(value ValueRef, default_block int, default_args [
 }
 
 pub fn (mut b Builder) return_(values []ValueRef) {
-	results := b.function.signature.results
+	results := b.function.signature.result_types()
 	if values.len != results.len {
 		panic("return_: 'return' passes ${values.len} values, and the function returns ${results.len}")
 	}
@@ -1462,7 +1478,7 @@ fn (mut b Builder) check_arguments(site string, signature Signature, args []Valu
 		panic('${site}: the call passes ${args.len} arguments, and the signature takes ${signature.params.len}')
 	}
 	for i, arg in args {
-		b.expect(arg, signature.params[i], '${site} argument ${i + 1}')
+		b.expect(arg, signature.params[i].typ, '${site} argument ${i + 1}')
 	}
 }
 
@@ -1480,7 +1496,7 @@ pub fn (mut b Builder) call(callee string, signature Signature, args []ValueRef)
 	for arg in args {
 		inst.operands << b.operand(arg)
 	}
-	return b.push_inst('call', inst, signature.results)
+	return b.push_inst('call', inst, signature.result_types())
 }
 
 pub fn (mut b Builder) call_indirect(pointer ValueRef, signature Signature, args []ValueRef) []ValueRef {
@@ -1494,11 +1510,11 @@ pub fn (mut b Builder) call_indirect(pointer ValueRef, signature Signature, args
 	for arg in args {
 		inst.operands << b.operand(arg)
 	}
-	return b.push_inst('call_indirect', inst, signature.results)
+	return b.push_inst('call_indirect', inst, signature.result_types())
 }
 
 fn (mut b Builder) check_tail_signature(site string, signature Signature) {
-	if signature.results != b.function.signature.results {
+	if signature.result_types() != b.function.signature.result_types() {
 		panic('${site}: the callee returns ${signature.results.len} results, and the function returns ${b.function.signature.results.len}')
 	}
 }
@@ -1769,15 +1785,15 @@ fn (mut b Builder) resolve_boundary(block int, variable Variable) ValueRef {
 		}
 		return value
 	}
-	param := b.push_value(variable.typ, .block_param, block, -1)
-	b.function.blocks[block].params << param
+	param_value := b.push_value(variable.typ, .block_param, block, -1)
+	b.function.blocks[block].params << param_value
 	mut boundary := b.boundary[block]
-	boundary[variable.id] = param
+	boundary[variable.id] = param_value
 	b.boundary[block] = boundary
 	for edge in edges {
 		value := if edge.block == block {
 			ValueRef{
-				idx: param
+				idx: param_value
 				typ: variable.typ
 			}
 		} else {
@@ -1786,7 +1802,7 @@ fn (mut b Builder) resolve_boundary(block int, variable Variable) ValueRef {
 		b.append_jump_arg(edge, value)
 	}
 	return ValueRef{
-		idx: param
+		idx: param_value
 		typ: variable.typ
 	}
 }
