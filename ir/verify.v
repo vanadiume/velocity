@@ -390,13 +390,13 @@ fn (mut c VerifyContext) check_signature(function &Function) {
 	for i, param in function.signature.params {
 		problem := type_problem(param.typ)
 		if problem != '' {
-			c.error('V007', "parameter ${i + 1} of '@${function.name}' has type ${param.typ.str()}: ${problem}")
+			c.error('V023', "parameter ${i + 1} of '@${function.name}' has type ${param.typ.str()}: ${problem}")
 		}
 	}
 	for i, result in function.signature.results {
 		problem := type_problem(result.typ)
 		if problem != '' {
-			c.error('V007', "result ${i + 1} of '@${function.name}' has type ${result.typ.str()}: ${problem}")
+			c.error('V023', "result ${i + 1} of '@${function.name}' has type ${result.typ.str()}: ${problem}")
 		}
 	}
 }
@@ -501,7 +501,7 @@ fn (mut c VerifyContext) check_block_params(function &Function, bi int) {
 		value := function.values[index]
 		problem := type_problem(value.typ)
 		if problem != '' {
-			c.error('V007', 'parameter ${i + 1} of ${block_name(function, bi)} has type ${value.typ.str()}: ${problem}')
+			c.error('V023', 'parameter ${i + 1} of ${block_name(function, bi)} has type ${value.typ.str()}: ${problem}')
 		}
 	}
 }
@@ -1117,7 +1117,7 @@ fn (mut c VerifyContext) check_inline_asm(function &Function, inst Instruction) 
 		expected := inst.asm.outputs[i].typ
 		problem := type_problem(expected)
 		if problem != '' {
-			c.error('V018', "output ${i + 1} of 'inline_asm' has type ${expected.str()}: ${problem}")
+			c.error('V023', "output ${i + 1} of 'inline_asm' has type ${expected.str()}: ${problem}")
 			continue
 		}
 		if expected.is_struct() || expected.is_array() {
@@ -1393,14 +1393,14 @@ fn (mut c VerifyContext) check_type_valid(inst Instruction, typ Type, what strin
 	if problem == '' {
 		return true
 	}
-	c.error('V007', "${what} of '${inst.opcode.name()}' has type ${typ.str()}: ${problem}")
+	c.error('V023', "${what} of '${inst.opcode.name()}' has type ${typ.str()}: ${problem}")
 	return false
 }
 
 fn (mut c VerifyContext) check_memory_type(inst Instruction, typ Type, what string) bool {
 	problem := type_problem(typ)
 	if problem != '' {
-		c.error('V007', "${what} of '${inst.opcode.name()}' has type ${typ.str()}: ${problem}")
+		c.error('V023', "${what} of '${inst.opcode.name()}' has type ${typ.str()}: ${problem}")
 		return false
 	}
 	if !typ.is_memory() {

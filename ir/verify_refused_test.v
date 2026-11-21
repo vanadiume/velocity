@@ -149,6 +149,16 @@ block0:
 		fragment: 'a vector element is an integer, a float or a pointer'
 	},
 	Refusal{
+		text:     'target 64 little 8\nfn @f(%arg0: {}) -> i32 {\nblock0:\n  %v0 = iconst i32 0\n  return %v0\n}\n'
+		code:     'V023'
+		fragment: "parameter 1 of '@f' has type {}: a struct has at least one field"
+	},
+	Refusal{
+		text:     'target 64 little 8\nfn @f(%arg0: ptr) -> i32 {\nblock0:\n  %v0 = load %arg0 : {} align 4\n  %v1 = iconst i32 0\n  return %v1\n}\n'
+		code:     'V023'
+		fragment: "result of 'load' has type {}: a struct has at least one field"
+	},
+	Refusal{
 		text:     'target 64 little 8\nglobal @g: i1\n'
 		code:     'V015'
 		fragment: 'expected a memory type'
