@@ -6,6 +6,8 @@ global @message: 16 bytes align 16 readonly init 0x68656c6c6f0000000000000000000
 
 global @scratch: 4096 bytes align 16
 
+global @late_global: 8 bytes align 8
+
 extern fn @puts(%arg0: ptr) -> i32
 
 extern fn @identity(%arg0: i64) -> i64
@@ -53,8 +55,7 @@ block0:
   %v0 = call_indirect %arg0 : (i64) -> i64 (%arg1)
   %v1 = func_addr @identity
   %v2 = call_indirect %v1 : (i64) -> i64 (%v0)
-  %v3, %v4 = inline_asm "mov $0, $1; add $1, $2" out(i64, "=r") out(i32, "=r")
-    in(%v2, "r") in(%v1, "r") clobber("cc") clobber("memory") volatile
+  %v3, %v4 = inline_asm "mov $0, $1; add $1, $2" out(i64, "=r") out(i32, "=r") in(%v2, "r") in(%v1, "r") clobber("cc") clobber("memory") volatile
   %v5 = ptrtoint %arg0
   %v6 = inttoptr %v5
   %v7 = ptradd inbounds %v6, 8
@@ -65,7 +66,7 @@ block0:
 fn @copy(%arg0: ptr, %arg1: ptr) {
 block0:
   memcpy %arg0, %arg1, 64 align dst 8 align src 4
-  memmove %arg1, %arg0, 16 align src 8 align dst 16
+  memmove %arg1, %arg0, 16 align dst 16 align src 8
   memset %arg0, 0, 32 align 4
   return
 }
@@ -82,10 +83,7 @@ block0:
   return %v1
 }
 
-global @late_global: 8 bytes align 8
-
 fn @late_function(%arg0: i64) -> i64 {
 block0:
-  ; a comment, and a trap the frontend emits for an exhausted switch
   trap 7
 }

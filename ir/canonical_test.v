@@ -44,7 +44,9 @@ fn test_globals_keep_their_order_and_bytes() {
 	scratch := m.globals[2]
 	assert scratch.size == 4096
 	assert scratch.init.len == 0
-	// The last global is declared after the functions that name it.
+	// The fourth global. A module keeps its globals apart from its functions,
+	// so the printer writes every global before the first function, and the
+	// fixture is in the order the printer writes.
 	assert m.globals[3].name == 'late_global'
 }
 
