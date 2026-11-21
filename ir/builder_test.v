@@ -1051,6 +1051,30 @@ fn test_every_opcode_has_a_builder_method() {
 	assert errors.len == 0, errors.map(it.msg()).join('\n')
 }
 
+fn test_float_flags_build_and_verify() {
+	mut function := new_function('fmath', [ty_f64, ty_f64], [ty_f64])
+	mut builder := new_builder(mut function, builder_target())
+	entry := builder.create_entry_block()
+	builder.switch_to_block(entry)
+	left := builder.param(0)
+	right := builder.param(1)
+	sum := builder.fadd_flags(left, right, fast_math(.nnan, .reassoc))
+	product := builder.fmul_flags(sum, right, fast_math(.contract))
+	root := builder.fsqrt_flags(product, fast_math(.ninf))
+	measured := builder.fma_flags(left, right, root, fast_math(.afn))
+	chosen := builder.select(builder.fcmp_flags(.olt, measured, left, fast_math(.nnan)), measured,
+		left)
+	builder.return_([chosen])
+	builder.finish()
+	instructions := function.blocks[0].instructions
+	assert instructions[0].flags.nnan && instructions[0].flags.reassoc
+	assert instructions[1].flags.contract
+	assert instructions[2].flags.ninf
+	assert instructions[3].flags.afn
+	assert instructions[4].flags.nnan
+	assert_verified_function(function)
+}
+
 fn test_a_width_that_is_not_a_power_of_two_aligns_to_one() {
 	mut function := new_function('narrow', [ty_ptr], [int_type(24)])
 	mut builder := new_builder(mut function, builder_target())

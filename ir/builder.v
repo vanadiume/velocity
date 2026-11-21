@@ -649,6 +649,13 @@ pub enum Flag {
 	exact
 	inbounds
 	volatile
+	nnan
+	ninf
+	nsz
+	arcp
+	contract
+	reassoc
+	afn
 }
 
 pub fn flags(list ...Flag) FlagSet {
@@ -660,9 +667,22 @@ pub fn flags(list ...Flag) FlagSet {
 			.exact { set.exact = true }
 			.inbounds { set.inbounds = true }
 			.volatile { set.volatile = true }
+			.nnan { set.nnan = true }
+			.ninf { set.ninf = true }
+			.nsz { set.nsz = true }
+			.arcp { set.arcp = true }
+			.contract { set.contract = true }
+			.reassoc { set.reassoc = true }
+			.afn { set.afn = true }
 		}
 	}
 	return set
+}
+
+// fast_math is the name ir-builder.md uses for the opt-in float group. It is
+// the same set flags() builds, so a wrong member is still a check at the call.
+pub fn fast_math(list ...Flag) FlagSet {
+	return flags(...list)
 }
 
 fn (mut b Builder) check_flags(op Opcode, set FlagSet, site string) {
@@ -680,6 +700,27 @@ fn (mut b Builder) check_flags(op Opcode, set FlagSet, site string) {
 	}
 	if set.volatile && !accepts_flag(op, 'volatile') {
 		panic("${site}: '${op.name()}' does not accept the volatile flag")
+	}
+	if set.nnan && !accepts_flag(op, 'nnan') {
+		panic("${site}: '${op.name()}' does not accept the nnan flag")
+	}
+	if set.ninf && !accepts_flag(op, 'ninf') {
+		panic("${site}: '${op.name()}' does not accept the ninf flag")
+	}
+	if set.nsz && !accepts_flag(op, 'nsz') {
+		panic("${site}: '${op.name()}' does not accept the nsz flag")
+	}
+	if set.arcp && !accepts_flag(op, 'arcp') {
+		panic("${site}: '${op.name()}' does not accept the arcp flag")
+	}
+	if set.contract && !accepts_flag(op, 'contract') {
+		panic("${site}: '${op.name()}' does not accept the contract flag")
+	}
+	if set.reassoc && !accepts_flag(op, 'reassoc') {
+		panic("${site}: '${op.name()}' does not accept the reassoc flag")
+	}
+	if set.afn && !accepts_flag(op, 'afn') {
+		panic("${site}: '${op.name()}' does not accept the afn flag")
 	}
 }
 
@@ -994,6 +1035,11 @@ pub fn (mut b Builder) icmp(predicate IntPredicate, a ValueRef, c ValueRef) Valu
 }
 
 pub fn (mut b Builder) fcmp(predicate FloatPredicate, a ValueRef, c ValueRef) ValueRef {
+	return b.fcmp_flags(predicate, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) fcmp_flags(predicate FloatPredicate, a ValueRef, c ValueRef, set FlagSet) ValueRef {
+	b.check_flags(.fcmp, set, 'fcmp')
 	typ := b.value_type(a)
 	if !typ.is_float() {
 		panic('fcmp: value ${a.idx} has type ${typ.str()}, expected a float')
@@ -1001,6 +1047,7 @@ pub fn (mut b Builder) fcmp(predicate FloatPredicate, a ValueRef, c ValueRef) Va
 	b.expect(c, typ, 'fcmp')
 	mut inst := Instruction{
 		opcode:    .fcmp
+		flags:     set
 		predicate: predicate.str()
 	}
 	inst.operands << b.operand(a)
@@ -1010,7 +1057,8 @@ pub fn (mut b Builder) fcmp(predicate FloatPredicate, a ValueRef, c ValueRef) Va
 
 // Floating point.
 
-fn (mut b Builder) float_binop(site string, op Opcode, a ValueRef, c ValueRef) ValueRef {
+fn (mut b Builder) float_binop(site string, op Opcode, a ValueRef, c ValueRef, set FlagSet) ValueRef {
+	b.check_flags(op, set, site)
 	typ := b.value_type(a)
 	if !typ.is_float() {
 		panic('${site}: value ${a.idx} has type ${typ.str()}, expected a float')
@@ -1018,57 +1066,85 @@ fn (mut b Builder) float_binop(site string, op Opcode, a ValueRef, c ValueRef) V
 	b.expect(c, typ, site)
 	mut inst := Instruction{
 		opcode: op
+		flags:  set
 	}
 	inst.operands << b.operand(a)
 	inst.operands << b.operand(c)
 	return b.push_inst(site, inst, [typ])[0]
 }
 
-fn (mut b Builder) float_unop(site string, op Opcode, value ValueRef) ValueRef {
+fn (mut b Builder) float_unop(site string, op Opcode, value ValueRef, set FlagSet) ValueRef {
+	b.check_flags(op, set, site)
 	typ := b.value_type(value)
 	if !typ.is_float() {
 		panic('${site}: value ${value.idx} has type ${typ.str()}, expected a float')
 	}
 	mut inst := Instruction{
 		opcode: op
+		flags:  set
 	}
 	inst.operands << b.operand(value)
 	return b.push_inst(site, inst, [typ])[0]
 }
 
 pub fn (mut b Builder) fadd(a ValueRef, c ValueRef) ValueRef {
-	return b.float_binop('fadd', .fadd, a, c)
+	return b.float_binop('fadd', .fadd, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) fadd_flags(a ValueRef, c ValueRef, set FlagSet) ValueRef {
+	return b.float_binop('fadd', .fadd, a, c, set)
 }
 
 pub fn (mut b Builder) fsub(a ValueRef, c ValueRef) ValueRef {
-	return b.float_binop('fsub', .fsub, a, c)
+	return b.float_binop('fsub', .fsub, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) fsub_flags(a ValueRef, c ValueRef, set FlagSet) ValueRef {
+	return b.float_binop('fsub', .fsub, a, c, set)
 }
 
 pub fn (mut b Builder) fmul(a ValueRef, c ValueRef) ValueRef {
-	return b.float_binop('fmul', .fmul, a, c)
+	return b.float_binop('fmul', .fmul, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) fmul_flags(a ValueRef, c ValueRef, set FlagSet) ValueRef {
+	return b.float_binop('fmul', .fmul, a, c, set)
 }
 
 pub fn (mut b Builder) fdiv(a ValueRef, c ValueRef) ValueRef {
-	return b.float_binop('fdiv', .fdiv, a, c)
+	return b.float_binop('fdiv', .fdiv, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) fdiv_flags(a ValueRef, c ValueRef, set FlagSet) ValueRef {
+	return b.float_binop('fdiv', .fdiv, a, c, set)
 }
 
 pub fn (mut b Builder) frem(a ValueRef, c ValueRef) ValueRef {
-	return b.float_binop('frem', .frem, a, c)
+	return b.float_binop('frem', .frem, a, c, FlagSet{})
+}
+
+pub fn (mut b Builder) frem_flags(a ValueRef, c ValueRef, set FlagSet) ValueRef {
+	return b.float_binop('frem', .frem, a, c, set)
 }
 
 pub fn (mut b Builder) fcopysign(a ValueRef, c ValueRef) ValueRef {
-	return b.float_binop('fcopysign', .fcopysign, a, c)
+	return b.float_binop('fcopysign', .fcopysign, a, c, FlagSet{})
 }
 
 pub fn (mut b Builder) fmin(a ValueRef, c ValueRef) ValueRef {
-	return b.float_binop('fmin', .fmin, a, c)
+	return b.float_binop('fmin', .fmin, a, c, FlagSet{})
 }
 
 pub fn (mut b Builder) fmax(a ValueRef, c ValueRef) ValueRef {
-	return b.float_binop('fmax', .fmax, a, c)
+	return b.float_binop('fmax', .fmax, a, c, FlagSet{})
 }
 
 pub fn (mut b Builder) fma(a ValueRef, c ValueRef, d ValueRef) ValueRef {
+	return b.fma_flags(a, c, d, FlagSet{})
+}
+
+pub fn (mut b Builder) fma_flags(a ValueRef, c ValueRef, d ValueRef, set FlagSet) ValueRef {
+	b.check_flags(.fma, set, 'fma')
 	typ := b.value_type(a)
 	if !typ.is_float() {
 		panic('fma: value ${a.idx} has type ${typ.str()}, expected a float')
@@ -1077,6 +1153,7 @@ pub fn (mut b Builder) fma(a ValueRef, c ValueRef, d ValueRef) ValueRef {
 	b.expect(d, typ, 'fma')
 	mut inst := Instruction{
 		opcode: .fma
+		flags:  set
 	}
 	inst.operands << b.operand(a)
 	inst.operands << b.operand(c)
@@ -1085,31 +1162,35 @@ pub fn (mut b Builder) fma(a ValueRef, c ValueRef, d ValueRef) ValueRef {
 }
 
 pub fn (mut b Builder) fneg(value ValueRef) ValueRef {
-	return b.float_unop('fneg', .fneg, value)
+	return b.float_unop('fneg', .fneg, value, FlagSet{})
 }
 
 pub fn (mut b Builder) fabs(value ValueRef) ValueRef {
-	return b.float_unop('fabs', .fabs, value)
+	return b.float_unop('fabs', .fabs, value, FlagSet{})
 }
 
 pub fn (mut b Builder) fsqrt(value ValueRef) ValueRef {
-	return b.float_unop('fsqrt', .fsqrt, value)
+	return b.float_unop('fsqrt', .fsqrt, value, FlagSet{})
+}
+
+pub fn (mut b Builder) fsqrt_flags(value ValueRef, set FlagSet) ValueRef {
+	return b.float_unop('fsqrt', .fsqrt, value, set)
 }
 
 pub fn (mut b Builder) fceil(value ValueRef) ValueRef {
-	return b.float_unop('fceil', .fceil, value)
+	return b.float_unop('fceil', .fceil, value, FlagSet{})
 }
 
 pub fn (mut b Builder) ffloor(value ValueRef) ValueRef {
-	return b.float_unop('ffloor', .ffloor, value)
+	return b.float_unop('ffloor', .ffloor, value, FlagSet{})
 }
 
 pub fn (mut b Builder) ftrunc(value ValueRef) ValueRef {
-	return b.float_unop('ftrunc', .ftrunc, value)
+	return b.float_unop('ftrunc', .ftrunc, value, FlagSet{})
 }
 
 pub fn (mut b Builder) fnearest(value ValueRef) ValueRef {
-	return b.float_unop('fnearest', .fnearest, value)
+	return b.float_unop('fnearest', .fnearest, value, FlagSet{})
 }
 
 // Conversions.

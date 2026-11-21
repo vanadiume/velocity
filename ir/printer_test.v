@@ -269,6 +269,25 @@ block0:
 	assert printed.contains('  %v1 = shl exact %v0, %arg1\n'), printed
 }
 
+// The float group follows the integer and volatile group, in the order
+// nnan ninf nsz arcp contract reassoc afn.
+fn test_the_float_flags_print_after_the_integer_group() {
+	text := 'target 64 little 8
+fn @f(%a: f64, %b: f64) -> f64 {
+block0:
+  %v0 = fadd reassoc contract nnan %a, %b
+  %v1 = frem afn nsz %v0, %b
+  %v2 = fcmp ninf olt %v1, %a
+  %v3 = select %v2, %v1, %a
+  return %v3
+}
+'
+	printed := print_module(parse_text(text) or { panic('${err.msg()}') })
+	assert printed.contains('  %v0 = fadd nnan contract reassoc %arg0, %arg1\n'), printed
+	assert printed.contains('  %v1 = frem nsz afn %v0, %arg1\n'), printed
+	assert printed.contains('  %v2 = fcmp ninf olt %v1, %arg0\n'), printed
+}
+
 fn test_an_iconst_prints_its_immediate_in_the_width_of_its_type() {
 	text := 'target 64 little 8
 fn @f() -> i32 {

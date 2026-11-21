@@ -533,18 +533,43 @@ fn (mut c VerifyContext) check_flags(inst Instruction) {
 	if inst.flags.volatile && !accepts_flag(inst.opcode, 'volatile') {
 		c.error('V008', "'${name}' does not accept the 'volatile' flag")
 	}
+	if inst.flags.nnan && !accepts_flag(inst.opcode, 'nnan') {
+		c.error('V008', "'${name}' does not accept the 'nnan' flag")
+	}
+	if inst.flags.ninf && !accepts_flag(inst.opcode, 'ninf') {
+		c.error('V008', "'${name}' does not accept the 'ninf' flag")
+	}
+	if inst.flags.nsz && !accepts_flag(inst.opcode, 'nsz') {
+		c.error('V008', "'${name}' does not accept the 'nsz' flag")
+	}
+	if inst.flags.arcp && !accepts_flag(inst.opcode, 'arcp') {
+		c.error('V008', "'${name}' does not accept the 'arcp' flag")
+	}
+	if inst.flags.contract && !accepts_flag(inst.opcode, 'contract') {
+		c.error('V008', "'${name}' does not accept the 'contract' flag")
+	}
+	if inst.flags.reassoc && !accepts_flag(inst.opcode, 'reassoc') {
+		c.error('V008', "'${name}' does not accept the 'reassoc' flag")
+	}
+	if inst.flags.afn && !accepts_flag(inst.opcode, 'afn') {
+		c.error('V008', "'${name}' does not accept the 'afn' flag")
+	}
 }
 
 // accepts_flag is the table from ir-instructions.md: a flag an opcode does not
 // list is an error, not an ignored bit. Volatile is also an inline asm clause,
-// so it is accepted in either place there.
+// so it is accepted in either place there. The float group is opt-in and
+// applies to the arithmetic and fma; nnan and ninf also apply to fcmp.
 fn accepts_flag(op Opcode, flag string) bool {
+	float_ops := [Opcode.fadd, .fsub, .fmul, .fdiv, .frem, .fsqrt, .fma]
 	return match flag {
 		'nsw' { op in [Opcode.iadd, .isub, .imul, .ineg, .shl] }
 		'nuw' { op in [Opcode.iadd, .isub, .imul, .shl] }
 		'exact' { op in [Opcode.sdiv, .udiv, .srem, .urem, .sshr, .ushr] }
 		'inbounds' { op == .ptradd }
 		'volatile' { op in [Opcode.load, .store, .inline_asm] }
+		'nnan', 'ninf' { op in float_ops || op == .fcmp }
+		'nsz', 'arcp', 'contract', 'reassoc', 'afn' { op in float_ops }
 		else { false }
 	}
 }

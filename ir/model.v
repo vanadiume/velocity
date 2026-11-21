@@ -230,6 +230,15 @@ pub mut:
 	exact    bool
 	inbounds bool
 	volatile bool
+	// The float group. It is opt-in: a float instruction without a flag has
+	// the IEEE 754 meaning from ir-semantics.md.
+	nnan     bool
+	ninf     bool
+	nsz      bool
+	arcp     bool
+	contract bool
+	reassoc  bool
+	afn      bool
 }
 
 pub struct SourceLoc {

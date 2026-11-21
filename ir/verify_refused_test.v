@@ -79,6 +79,21 @@ block0:
 		fragment: 'is declared (i32) -> i32'
 	},
 	Refusal{
+		text:     'target 64 little 8\nfn @f(%arg0: i32) -> i32 {\nblock0:\n  %v0 = iadd nnan %arg0, 1\n  return %v0\n}\n'
+		code:     'V008'
+		fragment: "does not accept the 'nnan' flag"
+	},
+	Refusal{
+		text:     'target 64 little 8\nfn @f(%arg0: f64) -> i1 {\nblock0:\n  %v0 = fcmp arcp olt %arg0, %arg0\n  return %v0\n}\n'
+		code:     'V008'
+		fragment: "does not accept the 'arcp' flag"
+	},
+	Refusal{
+		text:     'target 64 little 8\nfn @f(%arg0: f64) -> f64 {\nblock0:\n  %v0 = fneg nnan %arg0\n  return %v0\n}\n'
+		code:     'V008'
+		fragment: "does not accept the 'nnan' flag"
+	},
+	Refusal{
 		text:     'target 64 little 8\nextern fn @f(%arg0: i32) -> i32 readonly readnone\n'
 		code:     'V032'
 		fragment: 'is both readonly and readnone'

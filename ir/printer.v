@@ -251,6 +251,27 @@ fn flags_text(inst &Instruction) []string {
 	if inst.flags.volatile && inst.opcode != .inline_asm {
 		written << 'volatile'
 	}
+	if inst.flags.nnan {
+		written << 'nnan'
+	}
+	if inst.flags.ninf {
+		written << 'ninf'
+	}
+	if inst.flags.nsz {
+		written << 'nsz'
+	}
+	if inst.flags.arcp {
+		written << 'arcp'
+	}
+	if inst.flags.contract {
+		written << 'contract'
+	}
+	if inst.flags.reassoc {
+		written << 'reassoc'
+	}
+	if inst.flags.afn {
+		written << 'afn'
+	}
 	return written
 }
 

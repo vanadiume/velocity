@@ -89,6 +89,26 @@ block0:
 ')
 }
 
+// The float flags are one opt-in group. They are accepted on the arithmetic,
+// fsqrt and fma, and nnan and ninf also on fcmp.
+fn test_the_float_flags_are_accepted_where_the_table_lists_them() {
+	assert_verified('target 64 little 8
+fn @f(%arg0: f64, %arg1: f64) -> f64 {
+block0:
+  %v0 = fadd nnan ninf nsz arcp contract reassoc afn %arg0, %arg1
+  %v1 = fsub contract %v0, %arg1
+  %v2 = fmul reassoc %v1, %arg1
+  %v3 = fdiv arcp %v2, %arg1
+  %v4 = frem nsz %v3, %arg1
+  %v5 = fsqrt nnan %v4
+  %v6 = fma reassoc %arg0, %arg1, %v5
+  %v7 = fcmp nnan olt %v6, %arg0
+  %v8 = select %v7, %v6, %arg0
+  return %v8
+}
+')
+}
+
 // A declaration alone verifies.
 fn test_a_declaration_alone_verifies() {
 	assert_verified('target 32 big 4

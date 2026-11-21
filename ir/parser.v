@@ -1007,6 +1007,27 @@ fn (mut p Parser) parse_flags(mut inst Instruction) ! {
 			'volatile' {
 				inst.flags.volatile = true
 			}
+			'nnan' {
+				inst.flags.nnan = true
+			}
+			'ninf' {
+				inst.flags.ninf = true
+			}
+			'nsz' {
+				inst.flags.nsz = true
+			}
+			'arcp' {
+				inst.flags.arcp = true
+			}
+			'contract' {
+				inst.flags.contract = true
+			}
+			'reassoc' {
+				inst.flags.reassoc = true
+			}
+			'afn' {
+				inst.flags.afn = true
+			}
 			else {
 				return
 			}
