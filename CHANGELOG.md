@@ -67,3 +67,8 @@ owns the change, which is the same vocabulary the commits use.
 * docs: the readme and the roadmap say the printer landed (736e268)
 * docs: drop the roadmap and what pointed at it (7962f56)
 * ir: a width that is not a power of two aligns to a power of two (43ec7f8)
+* ir: a global carries a type and a constant tree (9a5d4f9)
+* ir: effects and noundef on a signature (151026f)
+* ir: the float flags (c74b138)
+* ir: the builder sets effects and builds typed globals (ecabc01)
+* ir: a malformed type is V023 wherever the verifier finds it (08206bb)
