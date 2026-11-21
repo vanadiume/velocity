@@ -61,3 +61,7 @@ owns the change, which is the same vocabulary the commits use.
 * ir: the if_ and loop_ helpers (627fed6)
 * ir: a test that builds every opcode through the builder (96cbd2e)
 * docs: the status, the roadmap and the changelog say the builder landed (6597871)
+* ir: the printer writes the canonical text form (efcdb17)
+* text: the canonical fixture is what the printer writes (0a82563)
+* text: the printer's tests (1f723a3)
+* docs: the readme and the roadmap say the printer landed (736e268)
