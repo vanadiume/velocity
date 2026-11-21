@@ -66,3 +66,4 @@ owns the change, which is the same vocabulary the commits use.
 * text: the printer's tests (1f723a3)
 * docs: the readme and the roadmap say the printer landed (736e268)
 * docs: drop the roadmap and what pointed at it (7962f56)
+* ir: a width that is not a power of two aligns to a power of two (43ec7f8)
