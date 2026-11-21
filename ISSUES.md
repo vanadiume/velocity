@@ -9,8 +9,9 @@ and a missing instruction or target is one labeled `enhancement`.
 1. Search the open and closed issues. The same wrong encoding gets found twice.
 2. Reduce the input. For a wrong encoding, the smallest function that still
    produces the wrong bytes. For a crash, the line that does it.
-3. Check ROADMAP.md. An instruction or a target listed as coming is a feature
-   request, not a bug.
+
+A missing instruction or target is a feature request, not a bug. File it and say
+what you would use it for.
 
 ## What a report needs
 
@@ -37,7 +38,8 @@ panic output, and for a hang the input that loops.
 
 - Bugs in V.
 - Bugs in the program the emitted code belongs to.
-- Instructions and targets that ROADMAP.md lists as coming.
+- Instructions and targets that are not implemented yet. Those are feature
+  requests.
 - Support for using the library in your compiler. That is a question, and it
   belongs in an issue with the `question` label.
 

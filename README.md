@@ -77,8 +77,9 @@ that the parser reads and the verifier accepts.
 
 There is no encoder yet, so a module can be built, read, checked and written
 back, not emitted.
-[ROADMAP.md](ROADMAP.md) has the order the work takes, and the gate runs over the
-tree.
+
+There is no roadmap and no release schedule yet. Work lands when it is ready, and
+the gate runs over the tree.
 
 ## What it will do
 

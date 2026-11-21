@@ -42,7 +42,7 @@ the bytes it writes, which is shorter than an application's.
 - Resource exhaustion from IR you chose to hand a library that does not claim to
   be hardened.
 - An instruction or a target that is not implemented yet. That is a feature
-  request, and ROADMAP.md says what is coming.
+  request.
 
 ## Reporting
 
@@ -66,5 +66,5 @@ published once it is out.
 ## Scope
 
 The library is a model and a set of stages, and only some of them exist. A
-report about a stage that is still a paragraph in ROADMAP.md is welcome, and
-better written down before the code that makes it true exists.
+report about a stage that does not exist yet is welcome as a design question,
+because it is cheaper to settle before the code that makes it true exists.
